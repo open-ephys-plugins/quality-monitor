@@ -64,7 +64,8 @@ if(MSVC)
 	
 	install(TARGETS ${PLUGIN_NAME} RUNTIME DESTINATION ${GUI_BIN_DIR}/plugins  CONFIGURATIONS ${CMAKE_CONFIGURATION_TYPES})
 
-	set(CMAKE_PREFIX_PATH ${CMAKE_CURRENT_SOURCE_DIR}/../libs)
+	set(CMAKE_PREFIX_PATH ${CMAKE_CURRENT_SOURCE_DIR}/libs/Windows)
+
 elseif(LINUX)
 	target_link_libraries(${PLUGIN_NAME} GL X11 Xext Xinerama asound dl freetype pthread rt)
 	set_property(TARGET ${PLUGIN_NAME} APPEND_STRING PROPERTY LINK_FLAGS
@@ -91,11 +92,12 @@ foreach( src_file IN ITEMS ${SRC_FILES})
 	source_group("${group_name}" FILES "${src_file}")
 endforeach()
 
-#additional libraries, if needed
-#find_package(LIBNAME)
-#or
-#find_library(LIBNAME_LIBRARIES NAMES libname)
-#find_path(LIBNAME_INCLUDE_DIRS includefile.h)
-#
-#target_link_libraries(${PLUGIN_NAME} ${LIBNAME_LIBRARIES})
-#target_include_directories(${PLUGIN_NAME} PRIVATE ${LIBNAME_INCLUDE_DIRS})
+#additional libraries
+
+find_library(FFTW3_LIBRARY NAMES libfftw3-3 fftw3 fftw3-3)
+find_path(FFTW3_INCLUDE_DIR fftw3.h)
+
+target_include_directories(${PLUGIN_NAME} PRIVATE ${FFTW3_INCLUDE_DIR})
+target_link_libraries(${PLUGIN_NAME} ${FFTW3_LIBRARY})
+
+target_compile_definitions(${PLUGIN_NAME} PRIVATE FFTW_NO_Complex)

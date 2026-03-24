@@ -22,32 +22,32 @@
 */
 
 //This prevents include loops. We recommend changing the macro to a name suitable for your plugin
-#ifndef VISUALIZERPLUGINEDITOR_H_DEFINED
-#define VISUALIZERPLUGINEDITOR_H_DEFINED
+#ifndef QUALITYMONITOREDITOR_H_DEFINED
+#define QUALITYMONITOREDITOR_H_DEFINED
 
 #include <VisualizerEditorHeaders.h>
 
 /** 
-	The editor for the VisualizerPlugin
+	The editor for the QualityMonitor
 
 	Includes buttons for opening the canvas in a tab or window
 */
 
-class VisualizerPluginEditor : public VisualizerEditor
+class QualityMonitorEditor : public VisualizerEditor
 {
 public:
     /** Constructor */
-    VisualizerPluginEditor (GenericProcessor* parentNode);
+    QualityMonitorEditor (GenericProcessor* parentNode);
 
     /** Destructor */
-    ~VisualizerPluginEditor() {}
+    ~QualityMonitorEditor() {}
 
     /** Creates the canvas */
     Visualizer* createNewCanvas();
 
 private:
     /** Generates an assertion if this class leaks */
-    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (VisualizerPluginEditor);
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (QualityMonitorEditor);
 };
 
-#endif // VISUALIZERPLUGINEDITOR_H_DEFINED
+#endif // QUALITYMONITOREDITOR_H_DEFINED

@@ -22,11 +22,11 @@
 
 #include <PluginInfo.h>
 
-#include "VisualizerPlugin.h" // update to point to your custom header file
+#include "QualityMonitor.h" // update to point to your custom header file
 
 #include <string>
 
-#ifdef WIN32
+#ifdef _WIN32
 #include <Windows.h>
 #define EXPORT __declspec (dllexport)
 #else
@@ -43,7 +43,7 @@ extern "C" EXPORT void getLibInfo (Plugin::LibraryInfo* info)
 	Should not be changed to ensure it is always equal to the one used in the latest codebase.
 	The GUI refueses to load plugins with mismatched API versions */
     info->apiVersion = PLUGIN_API_VER;
-    info->name = "VisualizerPlugin"; // Name of the plugin library
+    info->name = "Quality Monitor"; // Name of the plugin library
     info->libVersion = "0.1.0"; //Version of the plugin
     info->numPlugins = NUM_PLUGINS;
 }
@@ -59,13 +59,13 @@ extern "C" EXPORT int getPluginInfo (int index, Plugin::PluginInfo* info)
             info->type = Plugin::Type::PROCESSOR;
 
             //Processor name
-            info->processor.name = "Visualizer Plugin"; // Processor name shown in the GUI
+            info->processor.name = "Quality Monitor"; // Processor name shown in the GUI
 
             //Type of processor. Visualizers are usually sinks, but they can also be SOURCE or FILTER processors.
             info->processor.type = Processor::Type::SINK;
 
             //Class factory pointer. Replace "ProcessorPluginSpace::ProcessorPlugin" with the namespace and class name.
-            info->processor.creator = &(Plugin::createProcessor<VisualizerPlugin>);
+            info->processor.creator = &(Plugin::createProcessor<QualityMonitor>);
             break;
 
         default:

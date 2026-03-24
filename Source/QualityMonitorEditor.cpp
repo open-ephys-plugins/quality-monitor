@@ -21,12 +21,12 @@
 
 */
 
-#include "VisualizerPluginEditor.h"
+#include "QualityMonitorEditor.h"
 
-#include "VisualizerPlugin.h"
-#include "VisualizerPluginCanvas.h"
+#include "QualityMonitor.h"
+#include "QualityMonitorCanvas.h"
 
-VisualizerPluginEditor::VisualizerPluginEditor (GenericProcessor* p)
+QualityMonitorEditor::QualityMonitorEditor (GenericProcessor* p)
     : VisualizerEditor (p, "Visualizer", 240)
 {
     // Add parameter editors here. Note the parameters
@@ -37,8 +37,8 @@ VisualizerPluginEditor::VisualizerPluginEditor (GenericProcessor* p)
     //                                    15, 40);
 }
 
-Visualizer* VisualizerPluginEditor::createNewCanvas()
+Visualizer* QualityMonitorEditor::createNewCanvas()
 {
-    return new VisualizerPluginCanvas ((VisualizerPlugin*) getProcessor());
+    return new QualityMonitorCanvas ((QualityMonitor*) getProcessor());
     ;
 }
