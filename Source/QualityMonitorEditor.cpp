@@ -27,7 +27,7 @@
 #include "QualityMonitorCanvas.h"
 
 QualityMonitorEditor::QualityMonitorEditor (GenericProcessor* p)
-    : VisualizerEditor (p, "Visualizer", 240)
+    : VisualizerEditor (p, "Quality Monitor", 210)
 {
     // Add parameter editors here. Note the parameters
     // must be created in the processor's registerParameters() method.
@@ -40,5 +40,4 @@ QualityMonitorEditor::QualityMonitorEditor (GenericProcessor* p)
 Visualizer* QualityMonitorEditor::createNewCanvas()
 {
     return new QualityMonitorCanvas ((QualityMonitor*) getProcessor());
-    ;
 }

@@ -45,6 +45,16 @@ public:
     /** Creates the canvas */
     Visualizer* createNewCanvas();
 
+    void startAcquisition() override
+    {
+        enable();
+    }
+
+    void stopAcquisition() override
+    {
+        disable();
+    }
+
 private:
     /** Generates an assertion if this class leaks */
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (QualityMonitorEditor);

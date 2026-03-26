@@ -2,7 +2,7 @@
 	------------------------------------------------------------------
 
 	This file is part of a plugin for the Open Ephys GUI
-	Copyright (C) 2025 Open Ephys
+	Copyright (C) 2026 Open Ephys
 
 	------------------------------------------------------------------
 
@@ -25,11 +25,13 @@
 #define QUALITYMONITORCANVAS_H_DEFINED
 
 #include "ProbeMetrics.h"
+#include <AllLookAndFeels.h>
 #include <VisualizerWindowHeaders.h>
 #include <functional>
 #include <vector>
 
 class QualityMonitor;
+class QualityMonitorCanvas;
 
 namespace QCColours
 {
@@ -39,6 +41,8 @@ Colour statusCol (ProbeStatus s);
 String statusStr (ProbeStatus s);
 } // namespace QCColours
 
+// ─── RmsHeatmapPanel ─────────────────────────────────────────────────────────
+// Channels on Y axis, RMS value on X axis (horizontal bar chart + colour bar)
 class RmsHeatmapPanel : public Component
 {
 public:
@@ -54,6 +58,8 @@ private:
     void drawColourBar (Graphics& g, Rectangle<float> r);
 };
 
+// ─── PowerSpectrumPanel ──────────────────────────────────────────────────────
+// Channels on Y axis, frequency on X axis — power rendered as heatmap
 class PowerSpectrumPanel : public Component
 {
 public:
@@ -66,9 +72,13 @@ private:
     float sampleRate = 30000.0f;
     float powerlineHz = 60.0f;
     int numNoisyCh = 0;
-    static constexpr int NUM_TRACES = 6;
+    float gMinDb = -120.0f;
+    float gMaxDb =    0.0f;
+    void drawColourBar (Graphics& g, Rectangle<float> r);
 };
 
+// ─── DataSnapshotPanel ───────────────────────────────────────────────────────
+// Channels on Y axis, time samples on X axis (heatmap)
 class DataSnapshotPanel : public Component
 {
 public:
@@ -82,6 +92,8 @@ private:
     float maxUV = 50.0f;
 };
 
+// ─── SpikeRatePanel ──────────────────────────────────────────────────────────
+// Channels on Y axis, spike rate on X axis (horizontal bar chart)
 class SpikeRatePanel : public Component
 {
 public:
@@ -98,26 +110,52 @@ private:
     void drawLegend (Graphics& g, Rectangle<int> r);
 };
 
-class ProbeListRow : public Component
+// ─── ProbeListModel ──────────────────────────────────────────────────────────
+// JUCE ListBoxModel for the sidebar probe list
+class ProbeListModel : public ListBoxModel
 {
 public:
-    void setMetrics (const ProbeMetrics& m, bool selected);
-    void paint (Graphics& g) override;
-    void mouseDown (const MouseEvent&) override;
-    std::function<void()> onClick;
+    ProbeListModel(QualityMonitorCanvas* parent);
+
+    void setMetrics (const Array<ProbeMetrics>& metrics, int selected);
+
+    int getNumRows() override;
+    void paintListBoxItem (int row, Graphics& g, int width, int height, bool rowIsSelected) override;
+    void selectedRowsChanged (int lastRowSelected) override;
+
+    std::function<void (int)> onProbeSelected;
 
 private:
-    String name;
-    int numCh = 0;
-    ProbeStatus status = ProbeStatus::UNKNOWN;
-    bool sel = false;
+    Array<ProbeMetrics> localMetrics;
+    int selectedIdx = 0;
+    QualityMonitorCanvas* parent;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ProbeListModel)
 };
 
-/**
-* 
-	Draws data in real time
+// ─── ContentComponent ────────────────────────────────────────────────────────
+// Inner scrollable content holding the four plot panels in a 2×2 grid.
+// Enforces minimum dimensions so plots stay readable at small window sizes.
+class ContentComponent : public Component
+{
+public:
+    ContentComponent();
 
-*/
+    std::unique_ptr<RmsHeatmapPanel>    rmsPanel;
+    std::unique_ptr<PowerSpectrumPanel> specPanel;
+    std::unique_ptr<DataSnapshotPanel>  snapPanel;
+    std::unique_ptr<SpikeRatePanel>     spikePanel;
+
+    static constexpr int MIN_PANEL_W = 920;
+    static constexpr int MIN_PANEL_H = 620;
+
+    void resized() override;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ContentComponent)
+};
+
+// ─── QualityMonitorCanvas ────────────────────────────────────────────────────
+/** Draws data in real time */
 class QualityMonitorCanvas : public Visualizer
 {
 public:
@@ -130,49 +168,46 @@ public:
     /** Updates boundaries of sub-components whenever the canvas size changes */
     void resized() override;
 
-    /** Called by the update() method to allow the visualizer to update its custom settings.*/
+    /** Called by the update() method to allow the visualizer to update its custom settings. */
     void updateSettings() override;
 
     /** Called when the visualizer's tab becomes visible again */
     void refreshState() override;
 
-    /** Called instead of "repaint()" to avoid re-painting sub-components*/
+    /** Called instead of "repaint()" to avoid re-painting sub-components */
     void refresh() override;
 
     /** Draws the canvas background */
     void paint (Graphics& g) override;
 
 private:
-    /** Pointer to the processor class */
     QualityMonitor* processor;
 
     Array<ProbeMetrics> localMetrics;
-    OwnedArray<ProbeListRow> probeRows;
     int selectedProbe = 0;
 
-    std::unique_ptr<RmsHeatmapPanel> rmsPanel;
-    std::unique_ptr<PowerSpectrumPanel> specPanel;
-    std::unique_ptr<DataSnapshotPanel> snapPanel;
-    std::unique_ptr<SpikeRatePanel> spikePanel;
+    // Sidebar — JUCE ListBox
+    std::unique_ptr<ProbeListModel> probeListModel;
+    std::unique_ptr<ListBox>        probeListBox;
 
-    std::unique_ptr<ComboBox> durationCombo;
+    // Scrollable content area
+    std::unique_ptr<Viewport>         viewport;
+    std::unique_ptr<ContentComponent> content;
+
+    // Header controls
+    std::unique_ptr<ComboBox>   durationCombo;
     std::unique_ptr<TextButton> captureBtn;
     std::unique_ptr<TextButton> saveBtn;
-    std::unique_ptr<Label> statusIndicator;
+    std::unique_ptr<Label>      statusIndicator;
 
-    static constexpr int SIDEBAR_W = 200;
-    static constexpr int HEADER_H = 32;
-    static constexpr int ROW_H = 56;
-    static constexpr int REFRESH_HZ = 5;
+    static constexpr int SIDEBAR_W = 240;
+    static constexpr int HEADER_H  = 32;
 
-    void rebuildProbeRows();
     void selectProbe (int idx);
     void layoutPanels();
-    void paintSidebar (Graphics& g);
-    void paintHeader (Graphics& g);
 
     /** Generates an assertion if this class leaks */
-    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (QualityMonitorCanvas);
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (QualityMonitorCanvas)
 };
 
-#endif // QUALITYMONITORCANVAS_H_INCLUDED
+#endif // QUALITYMONITORCANVAS_H_DEFINED

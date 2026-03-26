@@ -2,7 +2,7 @@
     ------------------------------------------------------------------
 
     This file is part of a plugin for the Open Ephys GUI
-    Copyright (C) 2025 Open Ephys
+    Copyright (C) 2026 Open Ephys
 
     ------------------------------------------------------------------
 
@@ -29,17 +29,61 @@
 #include <cmath>
 #include <numeric>
 
-// -- QCColours -----------------------------------------------
+// ─── QCColours ───────────────────────────────────────────────────────────────
 
 namespace QCColours
 {
 Colour inferno (float t)
 {
     t = jlimit (0.0f, 1.0f, t);
-    float r = jlimit (0.0f, 1.0f, 1.4642f * t - 0.0576f * t * t - 0.001f);
-    float g = jlimit (0.0f, 1.0f, -0.0282f + 1.8463f * t - 1.8463f * t * t + 0.72f * t * t * t);
-    float b = jlimit (0.0f, 1.0f, t < 0.35f ? 0.52f * t / 0.35f : 0.52f - 1.48f * (t - 0.35f));
-    return Colour::fromFloatRGBA (r, g, b, 1.0f);
+
+    // 32-point piecewise-linear LUT from kennethmoreland.com/color-advice
+    // Source: inferno-table-float-0032.csv (scalar values evenly spaced, step = 1/31)
+    static constexpr float lut[32][3] = {
+        { 0.00146f, 0.00047f, 0.01387f },
+        { 0.01457f, 0.01166f, 0.07383f },
+        { 0.04450f, 0.02912f, 0.14520f },
+        { 0.08562f, 0.04422f, 0.22173f },
+        { 0.13515f, 0.04690f, 0.29890f },
+        { 0.19126f, 0.03920f, 0.36223f },
+        { 0.24733f, 0.03728f, 0.40120f },
+        { 0.30089f, 0.04858f, 0.42147f },
+        { 0.35282f, 0.06647f, 0.43077f },
+        { 0.40410f, 0.08565f, 0.43318f },
+        { 0.45526f, 0.10442f, 0.43033f },
+        { 0.50651f, 0.12263f, 0.42278f },
+        { 0.55782f, 0.14070f, 0.41059f },
+        { 0.60893f, 0.15932f, 0.39374f },
+        { 0.65945f, 0.17937f, 0.37228f },
+        { 0.70878f, 0.20186f, 0.34647f },
+        { 0.75625f, 0.22778f, 0.31675f },
+        { 0.80102f, 0.25803f, 0.28377f },
+        { 0.84228f, 0.29323f, 0.24828f },
+        { 0.87922f, 0.33358f, 0.21093f },
+        { 0.91124f, 0.37884f, 0.17210f },
+        { 0.93792f, 0.42848f, 0.13175f },
+        { 0.95904f, 0.48180f, 0.08967f },
+        { 0.97447f, 0.53814f, 0.04750f },
+        { 0.98412f, 0.59690f, 0.02370f },
+        { 0.98789f, 0.65760f, 0.04960f },
+        { 0.98565f, 0.71980f, 0.11117f },
+        { 0.97737f, 0.78300f, 0.18691f },
+        { 0.96380f, 0.84631f, 0.27733f },
+        { 0.94930f, 0.90728f, 0.38853f },
+        { 0.95125f, 0.95934f, 0.52052f },
+        { 0.98836f, 0.99836f, 0.64492f },
+    };
+
+    // Scalar values are evenly spaced (step = 1/31): direct index, no search needed
+    const float pos = t * 31.0f;
+    const int   i0  = jlimit (0, 31, int (pos));
+    const int   i1  = jlimit (0, 31, i0 + 1);
+    const float f   = pos - float (i0);
+
+    return Colour::fromFloatRGBA (lut[i0][0] + f * (lut[i1][0] - lut[i0][0]),
+                                  lut[i0][1] + f * (lut[i1][1] - lut[i0][1]),
+                                  lut[i0][2] + f * (lut[i1][2] - lut[i0][2]),
+                                  1.0f);
 }
 
 Colour cividis (float t)
@@ -55,14 +99,10 @@ Colour statusCol (ProbeStatus s)
 {
     switch (s)
     {
-        case ProbeStatus::PASS:
-            return Colour (0xff4caf50);
-        case ProbeStatus::WARN:
-            return Colour (0xffff9800);
-        case ProbeStatus::FAIL:
-            return Colour (0xfff44336);
-        default:
-            return Colours::grey;
+        case ProbeStatus::PASS: return Colour (0xff4caf50);
+        case ProbeStatus::WARN: return Colour (0xffff9800);
+        case ProbeStatus::FAIL: return Colour (0xfff44336);
+        default:                return Colours::grey;
     }
 }
 
@@ -70,44 +110,72 @@ String statusStr (ProbeStatus s)
 {
     switch (s)
     {
-        case ProbeStatus::PASS:
-            return "PASS";
-        case ProbeStatus::WARN:
-            return "WARN";
-        case ProbeStatus::FAIL:
-            return "FAIL";
-        default:
-            return "...";
+        case ProbeStatus::PASS: return "PASS";
+        case ProbeStatus::WARN: return "WARN";
+        case ProbeStatus::FAIL: return "FAIL";
+        default:                return "...";
     }
 }
 } // namespace QCColours
 
-static constexpr int TITLE_H = 20;
-static constexpr int META_H = 18;
+// ─── Shared drawing helpers ───────────────────────────────────────────────────
+
+static constexpr int TITLE_H  = 20;
+static constexpr int META_H   = 18;
 static constexpr int PLOT_PAD = 4;
-static constexpr int AXIS_L = 28;
-static constexpr int AXIS_B = 18;
-static constexpr int CBAR_W = 14;
+static constexpr int AXIS_L   = 38;   // left axis label width
+static constexpr int AXIS_B   = 18;   // bottom axis label height
+static constexpr int CBAR_W   = 14;
 
 static void drawBadge (Graphics& g, Rectangle<int> r, Colour bg, const String& text)
 {
     g.setColour (bg);
     g.fillRoundedRectangle (r.toFloat(), 4.0f);
     g.setColour (Colours::white);
-    g.setFont (Font (10.0f, Font::bold));
+    g.setFont (Font (FontOptions ("Inter", "Semi Bold", 10.0f)));
     g.drawText (text, r, Justification::centred, false);
 }
 
+// Font helpers — Inter typeface, sized dynamically by each caller
+static Font interRegular  (float size) { return Font (FontOptions ("Inter", "Regular",   size)); }
+static Font interSemiBold (float size) { return Font (FontOptions ("Inter", "Semi Bold", size)); }
+
+// Returns a point size scaled to the component height h, clamped to [minSz, maxSz].
+static float fscale (int h, float fraction, float minSz, float maxSz)
+{
+    return jlimit (minSz, maxSz, float (h) * fraction);
+}
+
+// Draws Y-axis channel ticks.
+// tickCol  — caller-supplied colour (use defaultText.withAlpha for secondary elements)
+// fontSize — caller-computed dynamic size
+static void drawChannelYTicks (Graphics& g, Rectangle<int> pb, int numCh,
+                                const std::initializer_list<int>& ticks,
+                                Colour tickCol, float fontSize)
+{
+    g.setColour (tickCol);
+    g.setFont (interRegular (fontSize));
+    for (int t : ticks)
+    {
+        if (t >= numCh)
+            break;
+        float y = float (pb.getY()) + (float (t) / float (numCh)) * float (pb.getHeight());
+        g.drawText (String (t), pb.getX() - AXIS_L, int (y) - 5, AXIS_L - 3, 10, Justification::centredRight);
+        g.drawHorizontalLine (int (y), float (pb.getX()), float (pb.getX()) + 4.0f);
+    }
+}
+
 // ─── RmsHeatmapPanel ─────────────────────────────────────────────────────────
+//   Y axis = channels, X axis = RMS value (horizontal colour bars)
 
 void RmsHeatmapPanel::updateData (const ProbeMetrics& m)
 {
-    rmsUV = m.rmsUV;
-    numCh = m.numChannels;
-    threshUV = m.rmsThresholdUV;
+    rmsUV     = m.rmsUV;
+    numCh     = m.numChannels;
+    threshUV  = m.rmsThresholdUV;
     numHighRms = m.numHighRmsChannels;
-    maxRms = rmsUV.empty() ? 1.0f : *std::max_element (rmsUV.begin(), rmsUV.end());
-    maxRms = std::max (maxRms, 1.0f);
+    maxRms    = rmsUV.empty() ? 1.0f : *std::max_element (rmsUV.begin(), rmsUV.end());
+    maxRms    = std::max (maxRms, 1.0f);
     repaint();
 }
 
@@ -117,62 +185,100 @@ void RmsHeatmapPanel::drawColourBar (Graphics& g, Rectangle<float> r)
     {
         float t = 1.0f - float (y) / r.getHeight();
         g.setColour (QCColours::inferno (t));
-        g.fillRect (r.getX(), r.getY() + y, r.getWidth(), 1.0f);
+        g.fillRect (r.getX(), r.getY() + float (y), r.getWidth(), 1.0f);
     }
     g.setColour (Colours::grey);
-    g.setFont (Font (8.5f));
-    g.drawText ("High", int (r.getX()), int (r.getY()), int (r.getWidth()) + 6, 10, Justification::centredLeft);
-    g.drawText ("Low", int (r.getX()), int (r.getBottom()) - 10, int (r.getWidth()) + 6, 10, Justification::centredLeft);
+    g.setFont (interRegular (8.0f));
+    g.drawText ("Hi", int (r.getX()), int (r.getY()),           int (r.getWidth()) + 6, 10, Justification::centredLeft);
+    g.drawText ("Lo", int (r.getX()), int (r.getBottom()) - 10, int (r.getWidth()) + 6, 10, Justification::centredLeft);
 }
 
 void RmsHeatmapPanel::paint (Graphics& g)
 {
     auto b = getLocalBounds();
-    g.fillAll (Colour (0xff1c1c1c));
+    g.fillAll (findColour (ThemeColours::componentParentBackground));
 
-    g.setColour (Colours::white);
-    g.setFont (Font (13.0f, Font::bold));
+    // Border
+    g.setColour (findColour (ThemeColours::outline));
+    g.drawRect (b, 1);
+
+    // Dynamic font sizes based on component height
+    const int   H       = getHeight();
+    const float titleSz = fscale (H, 0.044f, 11.0f, 18.0f);
+    const float metaSz  = fscale (H, 0.034f,  9.0f, 14.0f);
+    const float tickSz  = fscale (H, 0.028f,  8.0f, 11.0f);
+    const Colour textCol = findColour (ThemeColours::defaultText);
+    const Colour tickCol = textCol.withAlpha (0.6f);
+
+    // Title
+    g.setColour (textCol);
+    g.setFont (interSemiBold (titleSz));
     g.drawText ("RMS Heatmap", b.removeFromTop (TITLE_H).toFloat().reduced (4, 0), Justification::centredLeft);
 
+    // Meta row: threshold + warning badge
     auto metaRow = b.removeFromTop (META_H);
-    g.setColour (Colours::grey);
-    g.setFont (Font (10.5f));
+    g.setColour (tickCol);
+    g.setFont (interRegular (metaSz));
     g.drawText ("THRESHOLD  " + String (threshUV, 0) + " \xc2\xb5V", metaRow.removeFromLeft (160), Justification::centredLeft);
     if (numHighRms > 0)
-        drawBadge (g, metaRow.reduced (2, 1), Colour (0xffc62828), String (numHighRms) + " ch above " + String (threshUV, 0) + " \xc2\xb5V threshold");
+        drawBadge (g, metaRow.reduced (2, 1), Colour (0xffc62828),
+                   String (numHighRms) + " ch above " + String (threshUV, 0) + " \xc2\xb5V threshold");
 
     b.reduce (PLOT_PAD, PLOT_PAD);
     if (rmsUV.empty())
         return;
 
-    auto cbarBounds = b.removeFromRight (CBAR_W + 2).toFloat().reduced (0, 4);
+    // Colour bar on right
+    auto cbarBounds = b.removeFromRight (CBAR_W + 6).toFloat().reduced (0, 4);
     b.removeFromLeft (AXIS_L);
     b.removeFromBottom (AXIS_B);
+    auto pb = b;
 
-    float cellH = float (b.getHeight()) / float (numCh);
+    // Horizontal bars — one per channel, Y = channel index, X width = RMS value
+    float rowH = std::max (1.0f, float (pb.getHeight()) / float (numCh));
     for (int c = 0; c < numCh; ++c)
     {
-        g.setColour (QCColours::inferno (rmsUV[c] / maxRms));
-        g.fillRect (float (b.getX()), float (b.getY()) + c * cellH, float (b.getWidth()), std::max (cellH, 1.0f));
+        float t    = rmsUV[c] / maxRms;
+        float barW = jlimit (0.0f, float (pb.getWidth()), t * float (pb.getWidth()));
+        float y    = float (pb.getY()) + float (c) * rowH;
+        g.setColour (QCColours::inferno (t));
+        g.fillRect (float (pb.getX()), y, barW, rowH);
     }
 
-    float ty = float (b.getY()) + float (b.getHeight()) * jlimit (0.0f, 1.0f, threshUV / maxRms);
-    g.setColour (Colours::white.withAlpha (0.55f));
-    g.drawHorizontalLine (int (ty), float (b.getX()), float (b.getRight()));
-    g.setFont (Font (8.0f));
-    g.drawText (String (threshUV, 0), b.getX() - AXIS_L, int (ty) - 5, AXIS_L - 2, 10, Justification::centredRight);
-
-    g.setColour (Colours::darkgrey);
-    g.setFont (Font (9.0f));
-    for (int tick : { 0, 96, 192, 288, 383 })
+    // Vertical grid lines
+    g.setColour (textCol.withAlpha (0.05f));
+    for (int i = 1; i <= 4; ++i)
     {
-        if (tick >= numCh)
-            break;
-        float y = float (b.getY()) + (float (tick) / float (numCh)) * float (b.getHeight());
-        g.drawText (String (tick), b.getX() - AXIS_L, int (y) - 5, AXIS_L - 2, 10, Justification::centredRight);
-        g.drawHorizontalLine (int (y), float (b.getX()), float (b.getX()) + 4.0f);
+        float x = float (pb.getX()) + float (i) / 4.0f * float (pb.getWidth());
+        g.drawVerticalLine (int (x), float (pb.getY()), float (pb.getBottom()));
     }
-    g.drawText ("RMS Voltage (\xc2\xb5V)", b.getX(), b.getBottom(), b.getWidth(), AXIS_B, Justification::centred);
+
+    // Threshold line
+    float tx = float (pb.getX()) + jlimit (0.0f, 1.0f, threshUV / maxRms) * float (pb.getWidth());
+    g.setColour (Colours::white.withAlpha (0.65f));
+    g.drawVerticalLine (int (tx), float (pb.getY()), float (pb.getBottom()));
+    g.setColour (Colours::white.withAlpha (0.75f));
+    g.setFont (interRegular (tickSz));
+    g.drawText (String (threshUV, 0), int (tx) + 2, pb.getY() + 2, 30, 10, Justification::centredLeft);
+
+    // X axis ticks
+    g.setColour (tickCol);
+    g.setFont (interRegular (tickSz));
+    for (int i = 0; i <= 4; ++i)
+    {
+        float frac = float (i) / 4.0f;
+        float x    = float (pb.getX()) + frac * float (pb.getWidth());
+        g.drawVerticalLine (int (x), float (pb.getBottom()), float (pb.getBottom()) + 4.0f);
+        g.drawText (String (int (frac * maxRms)), int (x) - 14, pb.getBottom() + 3, 28, 12, Justification::centred);
+    }
+    g.setFont (interRegular (metaSz));
+    g.drawText ("RMS (\xc2\xb5V)", pb.getX(), pb.getBottom(), pb.getWidth(), AXIS_B, Justification::centred);
+
+    // Y axis ticks (channels)
+    drawChannelYTicks (g, pb, numCh, { 0, 96, 192, 288, 383 }, tickCol, tickSz);
+    g.setFont (interRegular (tickSz));
+    g.drawText ("Ch", pb.getX() - AXIS_L, pb.getY() - 11, AXIS_L - 3, 10, Justification::centredRight);
+
     drawColourBar (g, cbarBounds);
 }
 
@@ -180,26 +286,73 @@ void RmsHeatmapPanel::paint (Graphics& g)
 
 void PowerSpectrumPanel::updateData (const ProbeMetrics& m)
 {
-    spectrum = m.powerSpectrum;
-    numCh = m.numChannels;
-    sampleRate = m.sampleRate;
+    spectrum    = m.powerSpectrum;
+    numCh       = m.numChannels;
+    sampleRate  = m.sampleRate;
     powerlineHz = m.powerlineHz;
-    numNoisyCh = m.numNoisyChannels;
+    numNoisyCh  = m.numNoisyChannels;
+
+    // Compute global dB range across all channels (skip DC bin 0)
+    float gMin_ = 1e20f, gMax_ = -1e20f;
+    for (int c = 0; c < numCh && ! spectrum.empty(); ++c)
+    {
+        const float* row = spectrum.data() + c * FFT_BINS;
+        for (int k = 1; k < FFT_BINS; ++k)
+        {
+            if (row[k] > 0.0f)
+            {
+                float db = 10.0f * std::log10 (row[k]);
+                gMin_ = std::min (gMin_, db);
+                gMax_ = std::max (gMax_, db);
+            }
+        }
+    }
+    gMinDb = (gMin_ < 1e19f) ? gMin_ : -120.0f;
+    gMaxDb = (gMax_ > -1e19f) ? gMax_ : 0.0f;
+    if (gMaxDb <= gMinDb)
+        gMaxDb = gMinDb + 1.0f;
+
     repaint();
+}
+
+void PowerSpectrumPanel::drawColourBar (Graphics& g, Rectangle<float> r)
+{
+    for (int y = 0; y < int (r.getHeight()); ++y)
+    {
+        float t = 1.0f - float (y) / r.getHeight();
+        g.setColour (QCColours::inferno (t));
+        g.fillRect (r.getX(), r.getY() + float (y), r.getWidth(), 1.0f);
+    }
+    g.setColour (Colours::grey);
+    g.setFont (interRegular (8.0f));
+    g.drawText (String (int (gMaxDb)) + "dB", int (r.getX()), int (r.getY()),           int (r.getWidth()) + 32, 10, Justification::centredLeft);
+    g.drawText (String (int (gMinDb)) + "dB", int (r.getX()), int (r.getBottom()) - 10, int (r.getWidth()) + 32, 10, Justification::centredLeft);
 }
 
 void PowerSpectrumPanel::paint (Graphics& g)
 {
     auto b = getLocalBounds();
-    g.fillAll (Colour (0xff1c1c1c));
+    g.fillAll (findColour (ThemeColours::componentParentBackground));
 
-    g.setColour (Colours::white);
-    g.setFont (Font (13.0f, Font::bold));
+    // Border
+    g.setColour (findColour (ThemeColours::outline));
+    g.drawRect (b, 1);
+
+    // Dynamic font sizes
+    const int   H       = getHeight();
+    const float titleSz = fscale (H, 0.044f, 11.0f, 18.0f);
+    const float metaSz  = fscale (H, 0.034f,  9.0f, 14.0f);
+    const float tickSz  = fscale (H, 0.028f,  8.0f, 11.0f);
+    const Colour textCol = findColour (ThemeColours::defaultText);
+    const Colour tickCol = textCol.withAlpha (0.6f);
+
+    g.setColour (textCol);
+    g.setFont (interSemiBold (titleSz));
     g.drawText ("Power Spectrum", b.removeFromTop (TITLE_H).toFloat().reduced (4, 0), Justification::centredLeft);
 
     auto metaRow = b.removeFromTop (META_H);
-    g.setColour (Colours::grey);
-    g.setFont (Font (10.5f));
+    g.setColour (tickCol);
+    g.setFont (interRegular (metaSz));
     g.drawText ("POWERLINE NOISE  " + String (powerlineHz, 0) + " Hz", metaRow.removeFromLeft (200), Justification::centredLeft);
     if (numNoisyCh > 0)
         drawBadge (g, metaRow.reduced (2, 1), Colour (0xffe65100), String (numNoisyCh) + " ch noisy");
@@ -208,99 +361,91 @@ void PowerSpectrumPanel::paint (Graphics& g)
     if (spectrum.empty())
         return;
 
+    // Colour bar on right (extra width for dB labels)
+    auto cbarBounds = b.removeFromRight (CBAR_W + 32).toFloat().reduced (0, 4);
+    b.removeFromLeft (AXIS_L);
+    b.removeFromBottom (AXIS_B);
     auto pb = b;
-    pb.removeFromLeft (AXIS_L);
-    pb.removeFromBottom (AXIS_B);
-    float px = float (pb.getX()), py = float (pb.getY());
-    float pw = float (pb.getWidth()), ph = float (pb.getHeight());
-    float nyquist = sampleRate / 2.0f;
 
-    g.setColour (Colours::white.withAlpha (0.05f));
-    for (int i = 1; i <= 4; ++i)
-        g.drawHorizontalLine (int (py + ph * float (i) / 4.0f), px, px + pw);
+    const int pw_i = pb.getWidth();
+    const int ph_i = pb.getHeight();
+    if (pw_i <= 0 || ph_i <= 0)
+        return;
 
-    g.setColour (Colours::darkgrey);
-    g.setFont (Font (9.0f));
-    for (float ft : { 0.0f, 50.0f, 100.0f, 150.0f, 200.0f, 300.0f, 500.0f })
+    const float nyquist = sampleRate / 2.0f;
+    const float dbRange = gMaxDb - gMinDb;
+
+    // Heatmap: render into an Image (one pixel per display pixel), then blit.
+    // Each pixel's channel is determined by its Y coordinate; frequency bin by X.
     {
-        if (ft > nyquist)
-            break;
-        float x = px + (ft / nyquist) * pw;
-        g.drawVerticalLine (int (x), py + ph, py + ph + 4.0f);
-        g.drawText (String (int (ft)), int (x) - 15, int (py + ph + 4), 30, 12, Justification::centred);
-    }
+        Image heatmap (Image::ARGB, pw_i, ph_i, true, SoftwareImageType());
+        Image::BitmapData bmd (heatmap, Image::BitmapData::writeOnly);
 
-    std::vector<int> tch (NUM_TRACES);
-    for (int i = 0; i < NUM_TRACES; ++i)
-        tch[i] = jlimit (0, numCh - 1, i * numCh / NUM_TRACES);
-
-    float gMin = 1e20f, gMax = -1e20f;
-    for (int c : tch)
-    {
-        const float* row = spectrum.data() + c * FFT_BINS;
-        for (int k = 1; k < FFT_BINS; ++k)
+        for (int y = 0; y < ph_i; ++y)
         {
-            float db = row[k] > 0.0f ? 10.0f * std::log10 (row[k]) : -120.0f;
-            gMin = std::min (gMin, db);
-            gMax = std::max (gMax, db);
+            const int c = jlimit (0, numCh - 1, y * numCh / ph_i);
+            const float* row = spectrum.data() + c * FFT_BINS;
+            for (int x = 0; x < pw_i; ++x)
+            {
+                const int   k  = jlimit (1, FFT_BINS - 1, 1 + x * (FFT_BINS - 2) / pw_i);
+                const float db = row[k] > 0.0f ? 10.0f * std::log10 (row[k]) : gMinDb;
+                const float t  = jlimit (0.0f, 1.0f, (db - gMinDb) / dbRange);
+                bmd.setPixelColour (x, y, QCColours::inferno (t));
+            }
         }
-    }
-    if (gMax <= gMin)
-        gMax = gMin + 1.0f;
 
-    Colour tc[NUM_TRACES] = { Colour (0xff00bcd4), Colour (0xffffeb3b), Colour (0xff8bc34a), Colour (0xffff9800), Colour (0xffe91e63), Colour (0xff9c27b0) };
-    for (int ti = 0; ti < NUM_TRACES; ++ti)
-    {
-        const float* row = spectrum.data() + tch[ti] * FFT_BINS;
-        Path trace;
-        bool first = true;
-        for (int k = 1; k < FFT_BINS; ++k)
-        {
-            float hz = (float (k) / float (FFT_BINS - 1)) * nyquist;
-            float db = row[k] > 0.0f ? 10.0f * std::log10 (row[k]) : -120.0f;
-            float x = px + (hz / nyquist) * pw;
-            float y = jlimit (py, py + ph, py + ph * (1.0f - (db - gMin) / (gMax - gMin)));
-            first ? trace.startNewSubPath (x, y) : trace.lineTo (x, y);
-            first = false;
-        }
-        g.setColour (tc[ti].withAlpha (0.75f));
-        g.strokePath (trace, PathStrokeType (1.3f));
+        g.drawImageAt (heatmap, pb.getX(), pb.getY());
     }
 
-    float harmonics[] = { powerlineHz, powerlineHz * 2.0f, 50.0f, 100.0f };
+    // Powerline harmonic markers (vertical lines)
+    const float harmonics[] = { powerlineHz, powerlineHz * 2.0f, 50.0f, 100.0f };
     for (float h : harmonics)
     {
         if (h <= 0.0f || h > nyquist)
             continue;
-        float x = px + (h / nyquist) * pw;
-        g.setColour (Colour (0xffff9800).withAlpha (0.55f));
-        g.drawVerticalLine (int (x), py, py + ph);
+        float x = float (pb.getX()) + (h / nyquist) * float (pw_i);
+        g.setColour (Colour (0xffff9800).withAlpha (0.75f));
+        g.drawVerticalLine (int (x), float (pb.getY()), float (pb.getBottom()));
         g.setColour (Colour (0xffff9800));
-        g.setFont (Font (8.5f));
-        g.drawText (String (int (h)) + " Hz", int (x) + 2, int (py) + 2, 38, 11, Justification::centredLeft);
+        g.setFont (interRegular (tickSz));
+        g.drawText (String (int (h)) + " Hz", int (x) + 2, pb.getY() + 2, 38, 11, Justification::centredLeft);
     }
 
-    g.setColour (Colours::grey);
-    g.setFont (Font (9.5f));
-    g.addTransform (AffineTransform::rotation (-MathConstants<float>::halfPi, float (b.getX() + 8), py + ph / 2.0f));
-    g.drawText ("Power (dB)", int (b.getX() + 8) - 30, int (py + ph / 2.0f) - 5, 60, 10, Justification::centred);
-    g.addTransform (AffineTransform::rotation (MathConstants<float>::halfPi, float (b.getX() + 8), py + ph / 2.0f));
-    g.drawText ("Frequency (Hz)", int (px), int (py + ph + 4), int (pw), 12, Justification::centred);
+    // X axis: frequency ticks
+    g.setColour (tickCol);
+    g.setFont (interRegular (tickSz));
+    for (float ft : { 0.0f, 50.0f, 100.0f, 150.0f, 200.0f, 300.0f, 500.0f })
+    {
+        if (ft > nyquist)
+            break;
+        float x = float (pb.getX()) + (ft / nyquist) * float (pw_i);
+        g.drawVerticalLine (int (x), float (pb.getBottom()), float (pb.getBottom()) + 4.0f);
+        g.drawText (String (int (ft)), int (x) - 15, pb.getBottom() + 4, 30, 12, Justification::centred);
+    }
+    g.setFont (interRegular (metaSz));
+    g.drawText ("Frequency (Hz)", pb.getX(), pb.getBottom(), pw_i, AXIS_B, Justification::centred);
+
+    // Y axis: channel ticks
+    drawChannelYTicks (g, pb, numCh, { 0, 96, 192, 288, 383 }, tickCol, tickSz);
+    g.setFont (interRegular (tickSz));
+    g.drawText ("Ch", pb.getX() - AXIS_L, pb.getY() - 11, AXIS_L - 3, 10, Justification::centredRight);
+
+    drawColourBar (g, cbarBounds);
 }
 
 // ─── DataSnapshotPanel ────────────────────────────────────────────────────────
+//   Y axis = channels (row per channel), X axis = time samples (columns)
 
 void DataSnapshotPanel::updateData (const ProbeMetrics& m)
 {
     snapshot = m.dataSnapshot;
-    numCh = m.numChannels;
+    numCh    = m.numChannels;
     if (! snapshot.empty())
     {
-        std::vector<float> abs (snapshot.size());
-        std::transform (snapshot.begin(), snapshot.end(), abs.begin(), [] (float v)
-                        { return std::abs (v); });
-        std::sort (abs.begin(), abs.end());
-        maxUV = std::max (abs[size_t (0.95f * float (abs.size()))], 1.0f);
+        std::vector<float> absV (snapshot.size());
+        std::transform (snapshot.begin(), snapshot.end(), absV.begin(), [] (float v) { return std::abs (v); });
+        std::sort (absV.begin(), absV.end());
+        maxUV = std::max (absV[size_t (0.95f * float (absV.size()))], 1.0f);
         minUV = -maxUV;
     }
     repaint();
@@ -309,92 +454,115 @@ void DataSnapshotPanel::updateData (const ProbeMetrics& m)
 void DataSnapshotPanel::paint (Graphics& g)
 {
     auto b = getLocalBounds();
-    g.fillAll (Colour (0xff1c1c1c));
+    g.fillAll (findColour (ThemeColours::componentParentBackground));
 
-    g.setColour (Colours::white);
-    g.setFont (Font (13.0f, Font::bold));
+    // Border
+    g.setColour (findColour (ThemeColours::outline));
+    g.drawRect (b, 1);
+
+    // Dynamic font sizes
+    const int   H       = getHeight();
+    const float titleSz = fscale (H, 0.044f, 11.0f, 18.0f);
+    const float metaSz  = fscale (H, 0.034f,  9.0f, 14.0f);
+    const float tickSz  = fscale (H, 0.028f,  8.0f, 11.0f);
+    const Colour textCol = findColour (ThemeColours::defaultText);
+    const Colour tickCol = textCol.withAlpha (0.6f);
+
+    g.setColour (textCol);
+    g.setFont (interSemiBold (titleSz));
     g.drawText ("Data Snapshot", b.removeFromTop (TITLE_H).toFloat().reduced (4, 0), Justification::centredLeft);
-    g.setColour (Colours::grey);
-    g.setFont (Font (10.5f));
+
+    g.setColour (tickCol);
+    g.setFont (interRegular (metaSz));
     g.drawText ("Color Map  Cividis", b.removeFromTop (META_H), Justification::centredLeft);
 
     b.reduce (PLOT_PAD, PLOT_PAD);
     if (snapshot.empty())
         return;
 
-    auto cbar = b.removeFromRight (CBAR_W + 2).toFloat().reduced (0, 4);
+    // Colour bar on right
+    auto cbar = b.removeFromRight (CBAR_W + 6).toFloat().reduced (0, 4);
     b.removeFromLeft (AXIS_L);
     b.removeFromBottom (AXIS_B);
+    auto pb = b;
 
     float range = maxUV - minUV;
-    float cH = float (b.getHeight()) / float (numCh);
-    float cW = float (b.getWidth()) / float (SNAPSHOT_SAMPLES);
+    float rowH  = float (pb.getHeight()) / float (numCh);
+    float colW  = float (pb.getWidth())  / float (SNAPSHOT_SAMPLES);
 
     for (int c = 0; c < numCh; ++c)
     {
         const float* row = snapshot.data() + c * SNAPSHOT_SAMPLES;
+        float y = float (pb.getY()) + float (c) * rowH;
         for (int s = 0; s < SNAPSHOT_SAMPLES; ++s)
         {
             g.setColour (QCColours::cividis (jlimit (0.0f, 1.0f, (row[s] - minUV) / range)));
-            g.fillRect (float (b.getX()) + s * cW, float (b.getY()) + c * cH, std::max (cW, 1.0f), std::max (cH, 1.0f));
+            g.fillRect (float (pb.getX()) + float (s) * colW, y,
+                        std::max (colW, 1.0f), std::max (rowH, 1.0f));
         }
     }
 
+    // Colour bar
     for (int y = 0; y < int (cbar.getHeight()); ++y)
     {
         g.setColour (QCColours::cividis (1.0f - float (y) / cbar.getHeight()));
-        g.fillRect (cbar.getX(), cbar.getY() + y, cbar.getWidth(), 1.0f);
+        g.fillRect (cbar.getX(), cbar.getY() + float (y), cbar.getWidth(), 1.0f);
     }
     g.setColour (Colours::grey);
-    g.setFont (Font (8.5f));
-    g.drawText ("+" + String (int (maxUV)) + "\xc2\xb5V", int (cbar.getX()), int (cbar.getY()), int (cbar.getWidth()) + 6, 10, Justification::centredLeft);
+    g.setFont (interRegular (8.0f));
+    g.drawText ("+" + String (int (maxUV)) + "\xc2\xb5V", int (cbar.getX()), int (cbar.getY()),           int (cbar.getWidth()) + 6, 10, Justification::centredLeft);
     g.drawText ("-" + String (int (maxUV)) + "\xc2\xb5V", int (cbar.getX()), int (cbar.getBottom()) - 10, int (cbar.getWidth()) + 6, 10, Justification::centredLeft);
 
-    g.setColour (Colours::darkgrey);
-    g.setFont (Font (9.0f));
-    for (int tick : { 0, 96, 192, 288, 383 })
+    // Y axis: channel ticks
+    drawChannelYTicks (g, pb, numCh, { 0, 96, 192, 288, 383 }, tickCol, tickSz);
+    g.setFont (interRegular (tickSz));
+    g.drawText ("Ch", pb.getX() - AXIS_L, pb.getY() - 11, AXIS_L - 3, 10, Justification::centredRight);
+
+    // X axis: time sample ticks
+    g.setColour (tickCol);
+    g.setFont (interRegular (tickSz));
+    for (int i = 0; i <= 4; ++i)
     {
-        if (tick >= numCh)
-            break;
-        float y = float (b.getY()) + (float (tick) / float (numCh)) * float (b.getHeight());
-        g.drawText (String (tick), b.getX() - AXIS_L, int (y) - 5, AXIS_L - 2, 10, Justification::centredRight);
+        float frac = float (i) / 4.0f;
+        float x    = float (pb.getX()) + frac * float (pb.getWidth());
+        int   samp = int (frac * float (SNAPSHOT_SAMPLES));
+        g.drawVerticalLine (int (x), float (pb.getBottom()), float (pb.getBottom()) + 4.0f);
+        g.drawText (String (samp), int (x) - 14, pb.getBottom() + 3, 28, 12, Justification::centred);
     }
-    g.setColour (Colours::grey);
-    g.drawText ("Time (samples)", b.getX(), b.getBottom(), b.getWidth(), AXIS_B, Justification::centred);
+    g.setFont (interRegular (metaSz));
+    g.drawText ("Time (samples)", pb.getX(), pb.getBottom(), pb.getWidth(), AXIS_B, Justification::centred);
 }
 
 // ─── SpikeRatePanel ───────────────────────────────────────────────────────────
+//   Y axis = channels, X axis = spike rate Hz (horizontal bars)
 
 void SpikeRatePanel::updateData (const ProbeMetrics& m)
 {
-    rateHz = m.spikeRateHz;
-    numCh = m.numChannels;
+    rateHz     = m.spikeRateHz;
+    numCh      = m.numChannels;
     spikeFailHz = m.spikeRateFailHz;
-    spikeLowHz = m.spikeRateLowHz;
-    numLowCh = m.numLowSpikeChannels;
-    maxRateHz = rateHz.empty() ? 30.0f : *std::max_element (rateHz.begin(), rateHz.end());
-    maxRateHz = std::max (maxRateHz, spikeLowHz * 2.0f);
+    spikeLowHz  = m.spikeRateLowHz;
+    numLowCh   = m.numLowSpikeChannels;
+    maxRateHz  = rateHz.empty() ? 30.0f : *std::max_element (rateHz.begin(), rateHz.end());
+    maxRateHz  = std::max (maxRateHz, spikeLowHz * 2.0f);
     repaint();
 }
 
 void SpikeRatePanel::drawLegend (Graphics& g, Rectangle<int> r)
 {
-    struct
-    {
-        Colour col;
-        const char* lbl;
-    } e[] = {
-        { Colour (0xff42a5f5), "Normal (>=2 Hz)" },
-        { Colour (0xffff9800), "Low (0.1-2 Hz)" },
-        { Colour (0xfff44336), "Fail (<0.1 Hz)" }
+    struct { Colour col; const char* lbl; } e[] = {
+        { Colour (0xff42a5f5), "Normal (>=2 Hz)"  },
+        { Colour (0xffff9800), "Low (0.1-2 Hz)"   },
+        { Colour (0xfff44336), "Fail (<0.1 Hz)"   }
     };
+    const float legendFs = fscale (getHeight(), 0.028f, 8.0f, 10.0f);
     int y = r.getY() + 2;
     for (auto& v : e)
     {
         g.setColour (v.col);
         g.fillRect (r.getX(), y, 10, 10);
-        g.setColour (Colours::lightgrey);
-        g.setFont (Font (9.5f));
+        g.setColour (findColour (ThemeColours::defaultText));
+        g.setFont (interRegular (legendFs));
         g.drawText (v.lbl, r.getX() + 13, y, r.getWidth() - 13, 10, Justification::centredLeft);
         y += 13;
     }
@@ -403,124 +571,205 @@ void SpikeRatePanel::drawLegend (Graphics& g, Rectangle<int> r)
 void SpikeRatePanel::paint (Graphics& g)
 {
     auto b = getLocalBounds();
-    g.fillAll (Colour (0xff1c1c1c));
+    g.fillAll (findColour (ThemeColours::componentParentBackground));
 
-    g.setColour (Colours::white);
-    g.setFont (Font (13.0f, Font::bold));
+    // Border
+    g.setColour (findColour (ThemeColours::outline));
+    g.drawRect (b, 1);
+
+    // Dynamic font sizes
+    const int   H       = getHeight();
+    const float titleSz = fscale (H, 0.044f, 11.0f, 18.0f);
+    const float metaSz  = fscale (H, 0.034f,  9.0f, 14.0f);
+    const float tickSz  = fscale (H, 0.028f,  8.0f, 11.0f);
+    const Colour textCol = findColour (ThemeColours::defaultText);
+    const Colour tickCol = textCol.withAlpha (0.6f);
+
+    g.setColour (textCol);
+    g.setFont (interSemiBold (titleSz));
     g.drawText ("Spike Rate", b.removeFromTop (TITLE_H).toFloat().reduced (4, 0), Justification::centredLeft);
 
     auto metaRow = b.removeFromTop (META_H);
-    g.setColour (Colours::grey);
-    g.setFont (Font (10.5f));
+    g.setColour (tickCol);
+    g.setFont (interRegular (metaSz));
     g.drawText ("SPIKE THRESH  " + String (spikeFailHz, 1) + " Hz", metaRow.removeFromLeft (180), Justification::centredLeft);
     if (numLowCh > 0)
-        drawBadge (g, metaRow.reduced (2, 1), Colour (0xffc62828), String (numLowCh) + " ch below " + String (spikeFailHz, 1) + " Hz threshold");
+        drawBadge (g, metaRow.reduced (2, 1), Colour (0xffc62828),
+                   String (numLowCh) + " ch below " + String (spikeFailHz, 1) + " Hz threshold");
 
     b.reduce (PLOT_PAD, PLOT_PAD);
     if (rateHz.empty())
         return;
 
-    drawLegend (g, b.removeFromRight (110).removeFromTop (44));
+    // Legend top-right
+    drawLegend (g, b.removeFromTop (44).removeFromRight (130));
+
     b.removeFromLeft (AXIS_L);
     b.removeFromBottom (AXIS_B);
+    auto pb = b;
+    float px = float (pb.getX()), py = float (pb.getY());
+    float pw = float (pb.getWidth()), ph = float (pb.getHeight());
 
-    float px = float (b.getX()), py = float (b.getY());
-    float pw = float (b.getWidth()), ph = float (b.getHeight());
-
-    int step = maxRateHz > 50 ? 20 : (maxRateHz > 20 ? 10 : 5);
-    for (int t = 0; t <= int (maxRateHz); t += step)
+    // Vertical grid lines
+    g.setColour (textCol.withAlpha (0.05f));
+    for (int i = 1; i <= 4; ++i)
     {
-        float y = py + ph * (1.0f - float (t) / maxRateHz);
-        g.setColour (Colours::white.withAlpha (0.05f));
-        g.drawHorizontalLine (int (y), px, px + pw);
-        g.setColour (Colours::darkgrey);
-        g.setFont (Font (9.0f));
-        g.drawText (String (t), int (px) - AXIS_L, int (y) - 5, AXIS_L - 2, 10, Justification::centredRight);
+        float x = px + float (i) / 4.0f * pw;
+        g.drawVerticalLine (int (x), py, py + ph);
     }
 
-    float ty = py + ph * (1.0f - spikeFailHz / maxRateHz);
+    // Threshold vertical line
+    float tx = px + jlimit (0.0f, 1.0f, spikeFailHz / maxRateHz) * pw;
     g.setColour (Colour (0xffc62828).withAlpha (0.75f));
-    g.drawHorizontalLine (int (ty), px, px + pw);
+    g.drawVerticalLine (int (tx), py, py + ph);
     g.setColour (Colour (0xffff5252));
-    g.setFont (Font (8.5f));
-    g.drawText (String (spikeFailHz, 1) + " Hz threshold", int (px + pw) - 90, int (ty) - 12, 88, 10, Justification::centredRight);
+    g.setFont (interRegular (tickSz));
+    g.drawText (String (spikeFailHz, 1) + " Hz", int (tx) + 2, int (py) + 2, 40, 10, Justification::centredLeft);
 
-    float bW = std::max (1.0f, pw / float (numCh));
+    // Horizontal bars per channel
+    float rowH = std::max (1.0f, ph / float (numCh));
     for (int c = 0; c < numCh; ++c)
     {
         float rate = rateHz[c];
-        float bH = (rate / maxRateHz) * ph;
-        float x = px + float (c) / float (numCh) * pw;
-        g.setColour (rate < spikeFailHz ? Colour (0xfff44336) : rate < spikeLowHz ? Colour (0xffff9800)
-                                                                                  : Colour (0xff42a5f5));
-        g.fillRect (x, py + ph - bH, bW, bH);
+        float barW = jlimit (0.0f, pw, (rate / maxRateHz) * pw);
+        float y    = py + float (c) * rowH;
+        g.setColour (rate < spikeFailHz ? Colour (0xfff44336)
+                   : rate < spikeLowHz  ? Colour (0xffff9800)
+                                        : Colour (0xff42a5f5));
+        g.fillRect (px, y, barW, rowH);
     }
 
-    g.setColour (Colours::darkgrey);
-    g.setFont (Font (9.0f));
-    for (int t : { 0, 96, 192, 288, 384 })
+    // Y axis: channel ticks
+    drawChannelYTicks (g, pb, numCh, { 0, 96, 192, 288, 383 }, tickCol, tickSz);
+    g.setFont (interRegular (tickSz));
+    g.drawText ("Ch", pb.getX() - AXIS_L, pb.getY() - 11, AXIS_L - 3, 10, Justification::centredRight);
+
+    // X axis ticks
+    g.setColour (tickCol);
+    g.setFont (interRegular (tickSz));
+    for (int i = 0; i <= 4; ++i)
     {
-        if (t > numCh)
-            break;
-        float x = px + (float (t) / float (numCh)) * pw;
+        float frac = float (i) / 4.0f;
+        float x    = px + frac * pw;
         g.drawVerticalLine (int (x), py + ph, py + ph + 4.0f);
-        g.drawText ("Ch " + String (t), int (x) - 16, int (py + ph + 4), 34, 12, Justification::centred);
+        g.drawText (String (frac * maxRateHz, 1, false), int (x) - 16, int (py + ph + 4), 34, 12, Justification::centred);
     }
+    g.setFont (interRegular (metaSz));
+    g.drawText ("Spike Rate (Hz)", int (px), int (py + ph + 4), int (pw), AXIS_B, Justification::centred);
 }
 
-// ─── ProbeListRow ─────────────────────────────────────────────────────────────
+// ─── ProbeListModel ──────────────────────────────────────────────────────────
 
-void ProbeListRow::setMetrics (const ProbeMetrics& m, bool selected)
+ProbeListModel::ProbeListModel (QualityMonitorCanvas* c)
+    : parent (c)
 {
-    name = m.streamName.isEmpty() ? "Probe" : m.streamName;
-    numCh = m.numChannels;
-    status = m.status;
-    sel = selected;
-    repaint();
 }
 
-void ProbeListRow::paint (Graphics& g)
+void ProbeListModel::setMetrics (const Array<ProbeMetrics>& metrics, int selected)
 {
-    auto b = getLocalBounds();
-    Colour sc = QCColours::statusCol (status);
-    if (sel)
+    localMetrics = metrics;
+    selectedIdx  = selected;
+}
+
+int ProbeListModel::getNumRows()
+{
+    return localMetrics.size();
+}
+
+void ProbeListModel::paintListBoxItem (int row, Graphics& g, int width, int height, bool rowIsSelected)
+{
+    if (row < 0 || row >= localMetrics.size())
+        return;
+
+    const auto& m  = localMetrics[row];
+    auto         b  = Rectangle<int> (0, 0, width, height);
+    Colour       sc = m.status == ProbeStatus::UNKNOWN ? parent->findColour (ThemeColours::defaultFill) : QCColours::statusCol (m.status);
+
+    // Row background
+    if (rowIsSelected)
     {
         g.setColour (sc.withAlpha (0.15f));
-        g.fillRoundedRectangle (b.toFloat().reduced (3, 2), 6.0f);
-        g.setColour (sc.withAlpha (0.70f));
-        g.drawRoundedRectangle (b.toFloat().reduced (3, 2), 6.0f, 1.5f);
+        g.fillRoundedRectangle (b.toFloat().reduced (3, 2), 5.0f);
+        g.setColour (sc.withAlpha (0.60f));
+        g.drawRoundedRectangle (b.toFloat().reduced (3, 2), 5.0f, 1.5f);
     }
+
+    // Status dot
     g.setColour (sc);
     g.fillEllipse (9.0f, float (b.getCentreY()) - 5.0f, 10.0f, 10.0f);
-    g.setColour (Colours::white);
-    g.setFont (Font (12.5f, Font::bold));
-    g.drawText (name, 26, b.getY() + 6, 90, 16, Justification::centredLeft);
-    g.setColour (Colours::grey);
+
+    // Name
+    String name = m.streamName.isEmpty() ? "Probe" : m.streamName;
+    Colour textCol = parent->findColour (ThemeColours::defaultText);
+    g.setColour (rowIsSelected ? textCol : textCol.withAlpha (0.6f));
+    g.setFont (Font (12.0f, Font::bold));
+    g.drawText (name, 26, b.getY() + 6, width - 80, 15, Justification::centredLeft);
+
+    // Channel count
+    g.setColour (rowIsSelected ? textCol : textCol.withAlpha (0.6f));
     g.setFont (Font (10.0f));
-    g.drawText (String (numCh) + " ch", 26, b.getY() + 24, 90, 14, Justification::centredLeft);
-    drawBadge (g, b.removeFromRight (54).reduced (6, 12), sc, QCColours::statusStr (status));
+    g.drawText (String (m.numChannels) + " ch", 26, b.getY() + 22, width - 80, 13, Justification::centredLeft);
+
+    // Status badge
+    drawBadge (g, b.removeFromRight (50).reduced (6, 10), sc, QCColours::statusStr (m.status));
 }
 
-void ProbeListRow::mouseDown (const MouseEvent&)
+void ProbeListModel::selectedRowsChanged (int lastRowSelected)
 {
-    if (onClick)
-        onClick();
+    if (onProbeSelected && lastRowSelected >= 0)
+        onProbeSelected (lastRowSelected);
 }
 
-// ─── QualityMonitorCanvas ──────────────────────────────────────────────────────
+// ─── ContentComponent ────────────────────────────────────────────────────────
 
-QualityMonitorCanvas::QualityMonitorCanvas (QualityMonitor* proc)
-    : processor (proc)
+ContentComponent::ContentComponent()
 {
-    rmsPanel = std::make_unique<RmsHeatmapPanel>();
-    specPanel = std::make_unique<PowerSpectrumPanel>();
-    snapPanel = std::make_unique<DataSnapshotPanel>();
+    rmsPanel   = std::make_unique<RmsHeatmapPanel>();
+    specPanel  = std::make_unique<PowerSpectrumPanel>();
+    snapPanel  = std::make_unique<DataSnapshotPanel>();
     spikePanel = std::make_unique<SpikeRatePanel>();
     addAndMakeVisible (rmsPanel.get());
     addAndMakeVisible (specPanel.get());
     addAndMakeVisible (snapPanel.get());
     addAndMakeVisible (spikePanel.get());
+}
 
+void ContentComponent::resized()
+{
+    auto b = getLocalBounds();
+    auto top = b.removeFromTop (b.getHeight() / 2);
+    rmsPanel->setBounds  (top.removeFromLeft (top.getWidth() / 2));
+    specPanel->setBounds (top);
+    snapPanel->setBounds (b.removeFromLeft (b.getWidth() / 2));
+    spikePanel->setBounds (b);
+}
+
+// ─── QualityMonitorCanvas ────────────────────────────────────────────────────
+
+QualityMonitorCanvas::QualityMonitorCanvas (QualityMonitor* proc)
+    : processor (proc)
+{
+    // Probe list sidebar
+    probeListModel = std::make_unique<ProbeListModel>(this);
+    probeListModel->onProbeSelected = [this] (int idx) { selectProbe (idx); };
+
+    probeListBox = std::make_unique<ListBox> ("ProbeList", probeListModel.get());
+    probeListBox->setRowHeight (52);
+    probeListBox->setMultipleSelectionEnabled (false);
+    // probeListBox->setColour (ListBox::backgroundColourId,     Colour (0));
+    // probeListBox->setColour (ListBox::outlineColourId,        Colour (0));
+    // probeListBox->setColour (ListBox::textColourId,           Colours::white);
+    addAndMakeVisible (probeListBox.get());
+
+    // Scrollable content with four panels
+    content  = std::make_unique<ContentComponent>();
+    viewport = std::make_unique<Viewport>();
+    viewport->setViewedComponent (content.get(), false);
+    viewport->setScrollBarsShown (true, true);
+    viewport->setScrollBarThickness (8);
+    addAndMakeVisible (viewport.get());
+
+    // Header controls
     durationCombo = std::make_unique<ComboBox>();
     durationCombo->addItem ("10 s", 1);
     durationCombo->addItem ("30 s", 2);
@@ -542,7 +791,7 @@ QualityMonitorCanvas::QualityMonitorCanvas (QualityMonitor* proc)
     statusIndicator->setFont (Font (11.0f, Font::bold));
     addAndMakeVisible (statusIndicator.get());
 
-    startTimerHz (REFRESH_HZ);
+    refreshRate = 5.0f;
 }
 
 QualityMonitorCanvas::~QualityMonitorCanvas() { stopTimer(); }
@@ -552,45 +801,38 @@ void QualityMonitorCanvas::refreshState() { updateSettings(); }
 void QualityMonitorCanvas::updateSettings()
 {
     processor->copyMetricsTo (localMetrics);
-    rebuildProbeRows();
-    for (int i = 0; i < localMetrics.size(); ++i)
-        probeRows[i]->setMetrics (localMetrics[i], i == selectedProbe);
+    probeListModel->setMetrics (localMetrics, selectedProbe);
+    probeListBox->updateContent();
+    if (selectedProbe < localMetrics.size())
+        probeListBox->selectRow (selectedProbe, false, true);
     refresh();
 }
 
 void QualityMonitorCanvas::refresh()
 {
     processor->copyMetricsTo (localMetrics);
+
+    // Update the sidebar list with latest status colours
+    probeListModel->setMetrics (localMetrics, selectedProbe);
+    probeListBox->repaintRow (selectedProbe);
+    for (int i = 0; i < localMetrics.size(); ++i)
+        probeListBox->repaintRow (i);
+
     if (selectedProbe >= localMetrics.size())
         return;
-    const auto& m = localMetrics[selectedProbe];
-    rmsPanel->updateData (m);
-    specPanel->updateData (m);
-    snapPanel->updateData (m);
-    spikePanel->updateData (m);
-    repaint (0, 0, SIDEBAR_W, getHeight());
-}
 
-void QualityMonitorCanvas::rebuildProbeRows()
-{
-    probeRows.clear();
-    for (int i = 0; i < localMetrics.size(); ++i)
-    {
-        auto* row = probeRows.add (new ProbeListRow());
-        addAndMakeVisible (row);
-        row->onClick = [this, i]
-        { selectProbe (i); };
-    }
-    if (selectedProbe >= localMetrics.size())
-        selectedProbe = 0;
-    layoutPanels();
+    const auto& m = localMetrics[selectedProbe];
+    content->rmsPanel->updateData (m);
+    content->specPanel->updateData (m);
+    content->snapPanel->updateData (m);
+    content->spikePanel->updateData (m);
 }
 
 void QualityMonitorCanvas::selectProbe (int idx)
 {
     selectedProbe = idx;
-    for (int i = 0; i < probeRows.size(); ++i)
-        probeRows[i]->setMetrics (localMetrics[i], i == idx);
+    probeListModel->setMetrics (localMetrics, idx);
+    probeListBox->selectRow (idx, false, true);
     refresh();
 }
 
@@ -599,13 +841,9 @@ void QualityMonitorCanvas::resized() { layoutPanels(); }
 void QualityMonitorCanvas::layoutPanels()
 {
     auto b = getLocalBounds();
-    b.removeFromTop (HEADER_H);
-    auto sb = b.removeFromLeft (SIDEBAR_W);
-    sb.removeFromTop (22);
-    for (auto* row : probeRows)
-        row->setBounds (sb.removeFromTop (ROW_H));
 
-    auto hdr = getLocalBounds().removeFromTop (HEADER_H).reduced (4, 3);
+    // Header strip
+    auto hdr = b.removeFromTop (HEADER_H).reduced (4, 3);
     durationCombo->setBounds (hdr.removeFromLeft (80));
     hdr.removeFromLeft (8);
     captureBtn->setBounds (hdr.removeFromLeft (72));
@@ -613,62 +851,43 @@ void QualityMonitorCanvas::layoutPanels()
     saveBtn->setBounds (hdr.removeFromLeft (60));
     statusIndicator->setBounds (hdr.removeFromRight (90));
 
-    auto top = b.removeFromTop (b.getHeight() / 2);
-    rmsPanel->setBounds (top.removeFromLeft (top.getWidth() / 2));
-    specPanel->setBounds (top);
-    snapPanel->setBounds (b.removeFromLeft (b.getWidth() / 2));
-    spikePanel->setBounds (b);
+    // Sidebar
+    auto sb = b.removeFromLeft (SIDEBAR_W);
+    // "PROBES" label occupies top 22 px; ListBox fills the rest
+    sb.removeFromTop (30);
+    sb.setHeight (probeListBox->getRowHeight() * probeListModel->getNumRows() + 2);
+    probeListBox->setBounds (sb.reduced (1, 0));
+
+    // Viewport fills remaining area; content is sized to at least the viewport
+    viewport->setBounds (b);
+    int cw = std::max (b.getWidth(),  2 * ContentComponent::MIN_PANEL_W);
+    int ch = std::max (b.getHeight(), 2 * ContentComponent::MIN_PANEL_H);
+    content->setSize (cw, ch);
 }
 
 void QualityMonitorCanvas::paint (Graphics& g)
 {
-    g.fillAll (Colour (0xff111111));
-    paintSidebar (g);
-    paintHeader (g);
-}
+    g.fillAll (findColour (ThemeColours::windowBackground));
 
-void QualityMonitorCanvas::paintSidebar (Graphics& g)
-{
-    g.setColour (Colour (0xff1e1e1e));
-    g.fillRect (0, 0, SIDEBAR_W, getHeight());
-    g.setColour (Colours::black);
-    g.fillRect (SIDEBAR_W - 1, 0, 1, getHeight());
-    g.setColour (Colours::grey);
-    g.setFont (Font (10.5f, Font::bold));
-    g.drawText ("PROBES", 10, HEADER_H + 4, 100, 16, Justification::centredLeft);
+    // Header background
+    g.setColour (findColour (ThemeColours::componentBackground));
+    g.fillRect (0, 0, getWidth(), HEADER_H);
+    g.setColour (findColour (ThemeColours::outline));
+    g.fillRect (1, HEADER_H - 1, getWidth() - 2, 1);
 
-    if (! localMetrics.isEmpty())
-    {
-        int pass = 0, warn = 0, fail = 0;
-        for (const auto& m : localMetrics)
-        {
-            if (m.status == ProbeStatus::PASS)
-                pass++;
-            else if (m.status == ProbeStatus::WARN)
-                warn++;
-            else if (m.status == ProbeStatus::FAIL)
-                fail++;
-        }
-        g.setColour (Colours::grey);
-        g.setFont (Font (10.0f));
-        g.drawText (String (pass) + " pass  \xc2\xb7  " + String (warn) + " warn  \xc2\xb7  " + String (fail) + " fail",
-                    6,
-                    HEADER_H + 22 + probeRows.size() * ROW_H + 6,
-                    SIDEBAR_W - 12,
-                    14,
-                    Justification::centredLeft);
-    }
-}
+    // Sidebar background
+    g.setColour (findColour (ThemeColours::componentBackground));
+    g.fillRect (0, HEADER_H, SIDEBAR_W, getHeight() - HEADER_H);
+    g.setColour (findColour (ThemeColours::outline));
+    g.fillRect (SIDEBAR_W - 1, HEADER_H, 1, getHeight() - HEADER_H);
 
-void QualityMonitorCanvas::paintHeader (Graphics& g)
-{
-    g.setColour (Colour (0xff1a1a1a));
-    g.fillRect (SIDEBAR_W, 0, getWidth() - SIDEBAR_W, HEADER_H);
-    g.setColour (Colours::black);
-    g.fillRect (SIDEBAR_W, HEADER_H - 1, getWidth() - SIDEBAR_W, 1);
-    int midX = SIDEBAR_W + (getWidth() - SIDEBAR_W) / 2;
-    int midY = HEADER_H + (getHeight() - HEADER_H) / 2;
-    g.setColour (Colours::black.withAlpha (0.8f));
-    g.drawVerticalLine (midX, HEADER_H, getHeight());
-    g.drawHorizontalLine (midY, SIDEBAR_W, getWidth());
+    // "PROBES" label in sidebar
+    g.setColour (findColour (ThemeColours::defaultFill));
+    g.fillRect (0, HEADER_H, SIDEBAR_W - 1, 30);
+    g.setColour (findColour (ThemeColours::defaultText));
+    g.setFont (FontOptions ("Inter", "Semi Bold", 14.0f));
+    g.drawText ("DATA STREAMS", 10, HEADER_H, SIDEBAR_W - 12, 30, Justification::centredLeft);
+
+    // Panel dividers inside content area (cosmetic — mirrored at viewport level)
+    // (The ContentComponent's own resized() layout handles panel borders)
 }
