@@ -38,7 +38,6 @@ Colour inferno (float t)
     t = jlimit (0.0f, 1.0f, t);
 
     // 32-point piecewise-linear LUT from kennethmoreland.com/color-advice
-    // Source: inferno-table-float-0032.csv (scalar values evenly spaced, step = 1/31)
     static constexpr float lut[32][3] = {
         { 0.00146f, 0.00047f, 0.01387f },
         { 0.01457f, 0.01166f, 0.07383f },
@@ -89,10 +88,52 @@ Colour inferno (float t)
 Colour cividis (float t)
 {
     t = jlimit (0.0f, 1.0f, t);
-    float r = jlimit (0.0f, 1.0f, -0.0150f + 1.0638f * t);
-    float g = jlimit (0.0f, 1.0f, 0.1260f + 0.6863f * t);
-    float b = jlimit (0.0f, 1.0f, 0.5320f - 0.2880f * t + 0.1600f * t * t);
-    return Colour::fromFloatRGBA (r, g, b, 1.0f);
+
+    // 32-point piecewise-linear LUT from: Nuñez et al. (2018)
+    static constexpr float lut[32][3] = {
+        { 0.0000f, 0.1262f, 0.3015f },   //   0
+        { 0.0000f, 0.1492f, 0.3537f },   //   8
+        { 0.0000f, 0.1714f, 0.4102f },   //  16
+        { 0.0000f, 0.1930f, 0.4361f },   //  25
+        { 0.0416f, 0.2158f, 0.4308f },   //  33
+        { 0.1283f, 0.2385f, 0.4256f },   //  41
+        { 0.1811f, 0.2611f, 0.4220f },   //  49
+        { 0.2281f, 0.2864f, 0.4202f },   //  58
+        { 0.2643f, 0.3088f, 0.4203f },   //  66
+        { 0.2974f, 0.3312f, 0.4221f },   //  74
+        { 0.3285f, 0.3537f, 0.4254f },   //  82
+        { 0.3582f, 0.3763f, 0.4302f },   //  90
+        { 0.3905f, 0.4018f, 0.4372f },   //  99
+        { 0.4183f, 0.4247f, 0.4450f },   // 107
+        { 0.4456f, 0.4477f, 0.4547f },   // 115
+        { 0.4722f, 0.4709f, 0.4665f },   // 123
+        { 0.5045f, 0.4975f, 0.4730f },   // 132
+        { 0.5349f, 0.5216f, 0.4738f },   // 140
+        { 0.5657f, 0.5461f, 0.4727f },   // 148
+        { 0.5970f, 0.5709f, 0.4696f },   // 156
+        { 0.6328f, 0.5993f, 0.4641f },   // 165
+        { 0.6651f, 0.6250f, 0.4573f },   // 173
+        { 0.6977f, 0.6511f, 0.4487f },   // 181
+        { 0.7308f, 0.6776f, 0.4382f },   // 189
+        { 0.7644f, 0.7047f, 0.4258f },   // 197
+        { 0.8027f, 0.7357f, 0.4090f },   // 206
+        { 0.8374f, 0.7639f, 0.3915f },   // 214
+        { 0.8725f, 0.7926f, 0.3712f },   // 222
+        { 0.9082f, 0.8219f, 0.3474f },   // 230
+        { 0.9490f, 0.8556f, 0.3155f },   // 239
+        { 0.9860f, 0.8862f, 0.2807f },   // 247
+        { 1.0000f, 0.9169f, 0.2731f },   // 255
+    };
+
+    const float pos = t * 31.0f;
+    const int   i0  = jlimit (0, 31, int (pos));
+    const int   i1  = jlimit (0, 31, i0 + 1);
+    const float f   = pos - float (i0);
+
+    return Colour::fromFloatRGBA (lut[i0][0] + f * (lut[i1][0] - lut[i0][0]),
+                                  lut[i0][1] + f * (lut[i1][1] - lut[i0][1]),
+                                  lut[i0][2] + f * (lut[i1][2] - lut[i0][2]),
+                                  1.0f);
 }
 
 Colour statusCol (ProbeStatus s)
