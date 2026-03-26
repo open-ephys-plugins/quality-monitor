@@ -28,114 +28,12 @@
 #include <algorithm>
 #include <cmath>
 #include <numeric>
+#include "ColorMap.h"
 
 // ─── QCColours ───────────────────────────────────────────────────────────────
 
 namespace QCColours
 {
-Colour inferno (float t)
-{
-    t = jlimit (0.0f, 1.0f, t);
-
-    // 32-point piecewise-linear LUT from kennethmoreland.com/color-advice
-    static constexpr float lut[32][3] = {
-        { 0.00146f, 0.00047f, 0.01387f },
-        { 0.01457f, 0.01166f, 0.07383f },
-        { 0.04450f, 0.02912f, 0.14520f },
-        { 0.08562f, 0.04422f, 0.22173f },
-        { 0.13515f, 0.04690f, 0.29890f },
-        { 0.19126f, 0.03920f, 0.36223f },
-        { 0.24733f, 0.03728f, 0.40120f },
-        { 0.30089f, 0.04858f, 0.42147f },
-        { 0.35282f, 0.06647f, 0.43077f },
-        { 0.40410f, 0.08565f, 0.43318f },
-        { 0.45526f, 0.10442f, 0.43033f },
-        { 0.50651f, 0.12263f, 0.42278f },
-        { 0.55782f, 0.14070f, 0.41059f },
-        { 0.60893f, 0.15932f, 0.39374f },
-        { 0.65945f, 0.17937f, 0.37228f },
-        { 0.70878f, 0.20186f, 0.34647f },
-        { 0.75625f, 0.22778f, 0.31675f },
-        { 0.80102f, 0.25803f, 0.28377f },
-        { 0.84228f, 0.29323f, 0.24828f },
-        { 0.87922f, 0.33358f, 0.21093f },
-        { 0.91124f, 0.37884f, 0.17210f },
-        { 0.93792f, 0.42848f, 0.13175f },
-        { 0.95904f, 0.48180f, 0.08967f },
-        { 0.97447f, 0.53814f, 0.04750f },
-        { 0.98412f, 0.59690f, 0.02370f },
-        { 0.98789f, 0.65760f, 0.04960f },
-        { 0.98565f, 0.71980f, 0.11117f },
-        { 0.97737f, 0.78300f, 0.18691f },
-        { 0.96380f, 0.84631f, 0.27733f },
-        { 0.94930f, 0.90728f, 0.38853f },
-        { 0.95125f, 0.95934f, 0.52052f },
-        { 0.98836f, 0.99836f, 0.64492f },
-    };
-
-    // Scalar values are evenly spaced (step = 1/31): direct index, no search needed
-    const float pos = t * 31.0f;
-    const int   i0  = jlimit (0, 31, int (pos));
-    const int   i1  = jlimit (0, 31, i0 + 1);
-    const float f   = pos - float (i0);
-
-    return Colour::fromFloatRGBA (lut[i0][0] + f * (lut[i1][0] - lut[i0][0]),
-                                  lut[i0][1] + f * (lut[i1][1] - lut[i0][1]),
-                                  lut[i0][2] + f * (lut[i1][2] - lut[i0][2]),
-                                  1.0f);
-}
-
-Colour cividis (float t)
-{
-    t = jlimit (0.0f, 1.0f, t);
-
-    // 32-point piecewise-linear LUT from: Nuñez et al. (2018)
-    static constexpr float lut[32][3] = {
-        { 0.0000f, 0.1262f, 0.3015f },   //   0
-        { 0.0000f, 0.1492f, 0.3537f },   //   8
-        { 0.0000f, 0.1714f, 0.4102f },   //  16
-        { 0.0000f, 0.1930f, 0.4361f },   //  25
-        { 0.0416f, 0.2158f, 0.4308f },   //  33
-        { 0.1283f, 0.2385f, 0.4256f },   //  41
-        { 0.1811f, 0.2611f, 0.4220f },   //  49
-        { 0.2281f, 0.2864f, 0.4202f },   //  58
-        { 0.2643f, 0.3088f, 0.4203f },   //  66
-        { 0.2974f, 0.3312f, 0.4221f },   //  74
-        { 0.3285f, 0.3537f, 0.4254f },   //  82
-        { 0.3582f, 0.3763f, 0.4302f },   //  90
-        { 0.3905f, 0.4018f, 0.4372f },   //  99
-        { 0.4183f, 0.4247f, 0.4450f },   // 107
-        { 0.4456f, 0.4477f, 0.4547f },   // 115
-        { 0.4722f, 0.4709f, 0.4665f },   // 123
-        { 0.5045f, 0.4975f, 0.4730f },   // 132
-        { 0.5349f, 0.5216f, 0.4738f },   // 140
-        { 0.5657f, 0.5461f, 0.4727f },   // 148
-        { 0.5970f, 0.5709f, 0.4696f },   // 156
-        { 0.6328f, 0.5993f, 0.4641f },   // 165
-        { 0.6651f, 0.6250f, 0.4573f },   // 173
-        { 0.6977f, 0.6511f, 0.4487f },   // 181
-        { 0.7308f, 0.6776f, 0.4382f },   // 189
-        { 0.7644f, 0.7047f, 0.4258f },   // 197
-        { 0.8027f, 0.7357f, 0.4090f },   // 206
-        { 0.8374f, 0.7639f, 0.3915f },   // 214
-        { 0.8725f, 0.7926f, 0.3712f },   // 222
-        { 0.9082f, 0.8219f, 0.3474f },   // 230
-        { 0.9490f, 0.8556f, 0.3155f },   // 239
-        { 0.9860f, 0.8862f, 0.2807f },   // 247
-        { 1.0000f, 0.9169f, 0.2731f },   // 255
-    };
-
-    const float pos = t * 31.0f;
-    const int   i0  = jlimit (0, 31, int (pos));
-    const int   i1  = jlimit (0, 31, i0 + 1);
-    const float f   = pos - float (i0);
-
-    return Colour::fromFloatRGBA (lut[i0][0] + f * (lut[i1][0] - lut[i0][0]),
-                                  lut[i0][1] + f * (lut[i1][1] - lut[i0][1]),
-                                  lut[i0][2] + f * (lut[i1][2] - lut[i0][2]),
-                                  1.0f);
-}
-
 Colour statusCol (ProbeStatus s)
 {
     switch (s)
@@ -163,7 +61,7 @@ String statusStr (ProbeStatus s)
 
 static constexpr int TITLE_H  = 20;
 static constexpr int META_H   = 18;
-static constexpr int PLOT_PAD = 4;
+static constexpr int PLOT_PAD = 10;
 static constexpr int AXIS_L   = 38;   // left axis label width
 static constexpr int AXIS_B   = 18;   // bottom axis label height
 static constexpr int CBAR_W   = 14;
@@ -225,7 +123,7 @@ void RmsHeatmapPanel::drawColourBar (Graphics& g, Rectangle<float> r)
     for (int y = 0; y < int (r.getHeight()); ++y)
     {
         float t = 1.0f - float (y) / r.getHeight();
-        g.setColour (QCColours::inferno (t));
+        g.setColour (ColourMaps::inferno (t));
         g.fillRect (r.getX(), r.getY() + float (y), r.getWidth(), 1.0f);
     }
     g.setColour (Colours::grey);
@@ -260,10 +158,10 @@ void RmsHeatmapPanel::paint (Graphics& g)
     auto metaRow = b.removeFromTop (META_H);
     g.setColour (tickCol);
     g.setFont (interRegular (metaSz));
-    g.drawText ("THRESHOLD  " + String (threshUV, 0) + " \xc2\xb5V", metaRow.removeFromLeft (160), Justification::centredLeft);
+    g.drawText ("THRESHOLD  " + String (threshUV, 0) + " μV", metaRow.removeFromLeft (160), Justification::centredLeft);
     if (numHighRms > 0)
         drawBadge (g, metaRow.reduced (2, 1), Colour (0xffc62828),
-                   String (numHighRms) + " ch above " + String (threshUV, 0) + " \xc2\xb5V threshold");
+                   String (numHighRms) + " ch above " + String (threshUV, 0) + " μV threshold");
 
     b.reduce (PLOT_PAD, PLOT_PAD);
     if (rmsUV.empty())
@@ -282,7 +180,7 @@ void RmsHeatmapPanel::paint (Graphics& g)
         float t    = rmsUV[c] / maxRms;
         float barW = jlimit (0.0f, float (pb.getWidth()), t * float (pb.getWidth()));
         float y    = float (pb.getY()) + float (c) * rowH;
-        g.setColour (QCColours::inferno (t));
+        g.setColour (ColourMaps::inferno (t));
         g.fillRect (float (pb.getX()), y, barW, rowH);
     }
 
@@ -313,7 +211,7 @@ void RmsHeatmapPanel::paint (Graphics& g)
         g.drawText (String (int (frac * maxRms)), int (x) - 14, pb.getBottom() + 3, 28, 12, Justification::centred);
     }
     g.setFont (interRegular (metaSz));
-    g.drawText ("RMS (\xc2\xb5V)", pb.getX(), pb.getBottom(), pb.getWidth(), AXIS_B, Justification::centred);
+    g.drawText ("RMS (μV)", pb.getX(), pb.getBottom(), pb.getWidth(), AXIS_B, Justification::centred);
 
     // Y axis ticks (channels)
     drawChannelYTicks (g, pb, numCh, { 0, 96, 192, 288, 383 }, tickCol, tickSz);
@@ -361,7 +259,7 @@ void PowerSpectrumPanel::drawColourBar (Graphics& g, Rectangle<float> r)
     for (int y = 0; y < int (r.getHeight()); ++y)
     {
         float t = 1.0f - float (y) / r.getHeight();
-        g.setColour (QCColours::inferno (t));
+        g.setColour (ColourMaps::viridis (t));
         g.fillRect (r.getX(), r.getY() + float (y), r.getWidth(), 1.0f);
     }
     g.setColour (Colours::grey);
@@ -431,7 +329,7 @@ void PowerSpectrumPanel::paint (Graphics& g)
                 const int   k  = jlimit (1, FFT_BINS - 1, 1 + x * (FFT_BINS - 2) / pw_i);
                 const float db = row[k] > 0.0f ? 10.0f * std::log10 (row[k]) : gMinDb;
                 const float t  = jlimit (0.0f, 1.0f, (db - gMinDb) / dbRange);
-                bmd.setPixelColour (x, y, QCColours::inferno (t));
+                bmd.setPixelColour (x, y, ColourMaps::viridis (t));
             }
         }
 
@@ -537,7 +435,7 @@ void DataSnapshotPanel::paint (Graphics& g)
         float y = float (pb.getY()) + float (c) * rowH;
         for (int s = 0; s < SNAPSHOT_SAMPLES; ++s)
         {
-            g.setColour (QCColours::cividis (jlimit (0.0f, 1.0f, (row[s] - minUV) / range)));
+            g.setColour (ColourMaps::cividis (jlimit (0.0f, 1.0f, (row[s] - minUV) / range)));
             g.fillRect (float (pb.getX()) + float (s) * colW, y,
                         std::max (colW, 1.0f), std::max (rowH, 1.0f));
         }
@@ -546,7 +444,7 @@ void DataSnapshotPanel::paint (Graphics& g)
     // Colour bar
     for (int y = 0; y < int (cbar.getHeight()); ++y)
     {
-        g.setColour (QCColours::cividis (1.0f - float (y) / cbar.getHeight()));
+        g.setColour (ColourMaps::cividis (1.0f - float (y) / cbar.getHeight()));
         g.fillRect (cbar.getX(), cbar.getY() + float (y), cbar.getWidth(), 1.0f);
     }
     g.setColour (Colours::grey);

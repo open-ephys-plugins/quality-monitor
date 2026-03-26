@@ -25,6 +25,7 @@
 #define QUALITYMONITORCANVAS_H_DEFINED
 
 #include "ProbeMetrics.h"
+#include "ColorMap.h"
 #include <AllLookAndFeels.h>
 #include <VisualizerWindowHeaders.h>
 #include <functional>
@@ -35,8 +36,6 @@ class QualityMonitorCanvas;
 
 namespace QCColours
 {
-Colour inferno (float t);
-Colour cividis (float t);
 Colour statusCol (ProbeStatus s);
 String statusStr (ProbeStatus s);
 } // namespace QCColours
