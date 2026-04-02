@@ -91,14 +91,15 @@ void QualityMonitor::updateSettings()
         probeMetrics.resize (totalProbes);
         for (int pi = 0; pi < totalProbes; ++pi)
         {
-            const float sr = validStreams[pi]->getSampleRate();
-            const int nCh = (int) probeChannelIndices[pi].size();
+            const float sr  = validStreams[pi]->getSampleRate();
+            const int   nCh = (int) probeChannelIndices[pi].size();
+            const int   dur = durationSeconds.load();
 
             // Preserve operator thresholds across reconfiguration
             const float prevRmsThr = probeMetrics.getReference(pi).rmsThresholdUV > 0.0f ? probeMetrics.getReference(pi).rmsThresholdUV : 20.0f;
             const float prevPlHz = probeMetrics.getReference(pi).powerlineHz > 0.0f ? probeMetrics.getReference(pi).powerlineHz : 60.0f;
 
-            probeMetrics.getReference(pi).allocate (nCh, sr);
+            probeMetrics.getReference(pi).allocate (nCh, sr, dur);
             probeMetrics.getReference(pi).streamName = validStreams[pi]->getName();
             probeMetrics.getReference(pi).rmsThresholdUV = prevRmsThr;
             probeMetrics.getReference(pi).powerlineHz = prevPlHz;
@@ -108,7 +109,13 @@ void QualityMonitor::updateSettings()
     // ProbeProcessingState owns FFTProcessor (RAII) — safe to reconstruct
     procState.resize (totalProbes);
     for (int pi = 0; pi < totalProbes; ++pi)
-        procState[pi].allocate ((int) probeChannelIndices[pi].size());
+    {
+        const int   nCh = (int) probeChannelIndices[pi].size();
+        const float sr  = validStreams[pi]->getSampleRate();
+        const int   dur = durationSeconds.load();
+        procState[pi].allocate (nCh);
+        procState[pi].totalSamplesAllowed = int64_t (dur) * int64_t (sr + 0.5f);
+    }
 }
 
 void QualityMonitor::process (AudioBuffer<float>& buffer)
@@ -124,6 +131,10 @@ void QualityMonitor::process (AudioBuffer<float>& buffer)
             continue;
 
         auto& ps = procState[pi];
+
+        // Stop processing once the full duration has elapsed
+        if (ps.processingDone)
+            continue;
 
         // 1. RMS accumulation
         for (int c = 0; c < nCh; ++c)
@@ -200,6 +211,20 @@ void QualityMonitor::process (AudioBuffer<float>& buffer)
         }
         if (ps.fftWinCount >= 8)
             finalizeFFT (pi);
+
+        // 6. Track total samples; end processing when duration elapses
+        ps.totalSamplesProcessed += numSamples;
+        if (ps.totalSamplesAllowed > 0 &&
+            ps.totalSamplesProcessed >= ps.totalSamplesAllowed)
+        {
+            // Force-finalize any partial windows
+            if (ps.rmsSampleCount > 0) { finalizeRms (pi); finalizeSpikes (pi); }
+            if (ps.fftWinCount > 0)    finalizeFFT (pi);
+
+            ps.processingDone = true;
+            std::lock_guard<std::mutex> lock (metricsMutex);
+            probeMetrics.getReference (pi).processingDone = true;
+        }
     }
 }
 
@@ -228,6 +253,16 @@ void QualityMonitor::finalizeRms (int pi)
     for (float v : m.rmsUV)
         if (v > m.rmsThresholdUV)
             m.numHighRmsChannels++;
+
+    // Append this frame to the rolling RMS history heatmap
+    if (m.rmsHistoryFrames < m.rmsHistoryMaxFrames)
+    {
+        const int frameOff = m.rmsHistoryFrames * nCh;
+        for (int c = 0; c < nCh; ++c)
+            m.rmsHistory[frameOff + c] = localRms[c];
+        m.rmsHistoryFrames++;
+    }
+
     m.recomputeStatus();
 }
 
@@ -389,4 +424,52 @@ void QualityMonitor::setPowerlineHz (int pi, float hz)
     std::lock_guard<std::mutex> lock (metricsMutex);
     if (pi < probeMetrics.size())
         probeMetrics.getReference (pi).powerlineHz = hz;
+}
+
+void QualityMonitor::setDurationSeconds (int sec)
+{
+    durationSeconds.store (jlimit (1, 300, sec));
+}
+
+bool QualityMonitor::startAcquisition()
+{
+    const int   dur = durationSeconds.load();
+
+    // Reset procState (safe: audio thread not running yet)
+    for (int pi = 0; pi < totalProbes; ++pi)
+    {
+        auto& ps = procState[pi];
+        ps.totalSamplesProcessed = 0;
+        ps.processingDone        = false;
+        ps.rmsSampleCount        = 0;
+        std::fill (ps.rmsSumSq.begin(),    ps.rmsSumSq.end(),    0.0);
+        std::fill (ps.spikeCount.begin(),  ps.spikeCount.end(),  0);
+        ps.spikeSampleCount = 0;
+        ps.fftRingPos       = 0;
+        ps.fftWinCount      = 0;
+        std::fill (ps.powerAccum.begin(), ps.powerAccum.end(), 0.0);
+    }
+
+    // Reset probeMetrics history (under lock)
+    {
+        std::lock_guard<std::mutex> lock (metricsMutex);
+        for (int pi = 0; pi < totalProbes; ++pi)
+        {
+            auto& m = probeMetrics.getReference (pi);
+            const float sr  = m.sampleRate;
+            const int   nCh = m.numChannels;
+            const int   maxFrames = std::max (1, int (float (dur) * sr / float (RMS_WINDOW_SAMPLES)));
+
+            m.processingDone      = false;
+            m.rmsHistoryFrames    = 0;
+            m.analysisDurationSec = dur;
+            m.rmsHistoryMaxFrames = maxFrames;
+            m.rmsHistory.assign   (nCh * maxFrames, 0.0f);
+
+            procState[pi].totalSamplesAllowed =
+                int64_t (dur) * int64_t (sr + 0.5f);
+        }
+    }
+
+    return true;
 }

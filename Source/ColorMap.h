@@ -24,7 +24,7 @@
 #ifndef COLORMAP_H_DEFINED
 #define COLORMAP_H_DEFINED
 
-#include <AllLookAndFeels.h>
+#include <BasicJuceHeader.h>
 
 namespace ColourMaps
 {

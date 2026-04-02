@@ -41,7 +41,7 @@ String statusStr (ProbeStatus s);
 } // namespace QCColours
 
 // ─── RmsHeatmapPanel ─────────────────────────────────────────────────────────
-// Channels on Y axis, RMS value on X axis (horizontal bar chart + colour bar)
+// Y axis = channels, X axis = time (one column per RMS window ~1 s)
 class RmsHeatmapPanel : public Component
 {
 public:
@@ -49,11 +49,16 @@ public:
     void paint (Graphics& g) override;
 
 private:
-    std::vector<float> rmsUV;
-    int numCh = 0;
-    float threshUV = 20.0f;
-    int numHighRms = 0;
-    float maxRms = 1.0f;
+    std::vector<float> rmsUV;           // latest RMS per channel (for badge count)
+    std::vector<float> rmsHistory;      // [maxFrames * numCh], filled left-to-right
+    int rmsHistoryFrames    = 0;
+    int rmsHistoryMaxFrames = 150;
+    int durationSec         = 30;       // total analysis duration for X-axis labels
+    int numCh       = 0;
+    float threshUV  = 20.0f;
+    int numHighRms  = 0;
+    float maxRms    = 1.0f;
+    bool processingDone = false;
     void drawColourBar (Graphics& g, Rectangle<float> r);
 };
 
@@ -145,8 +150,8 @@ public:
     std::unique_ptr<DataSnapshotPanel>  snapPanel;
     std::unique_ptr<SpikeRatePanel>     spikePanel;
 
-    static constexpr int MIN_PANEL_W = 920;
-    static constexpr int MIN_PANEL_H = 620;
+    static constexpr int MIN_PANEL_W = 720;
+    static constexpr int MIN_PANEL_H = 480;
 
     void resized() override;
 

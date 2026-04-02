@@ -30,6 +30,7 @@
 
 #include <fftw3.h>
 
+#include <atomic>
 #include <cmath>
 #include <memory>
 #include <mutex>
@@ -115,6 +116,11 @@ struct ProbeProcessingState
     std::vector<int>   spikeCount;
     int spikeSampleCount = 0;
 
+    // Duration tracking (audio-thread only, no lock needed)
+    int64_t totalSamplesAllowed   = 0;  // 0 = unlimited
+    int64_t totalSamplesProcessed = 0;
+    bool    processingDone        = false;
+
     void allocate (int nCh)
     {
         rmsSumSq.assign      (nCh, 0.0);
@@ -130,6 +136,10 @@ struct ProbeProcessingState
         wasBelowThresh.assign (nCh, true);
         spikeCount.assign    (nCh, 0);
         spikeSampleCount   = 0;
+
+        totalSamplesAllowed   = 0;
+        totalSamplesProcessed = 0;
+        processingDone        = false;
     }
 };
 
@@ -172,14 +182,21 @@ public:
     void setSpikeRateThresh (int probeIdx, float failHz, float lowHz);
     void setPowerlineHz     (int probeIdx, float hz);
 
+    /** Set the analysis duration (read at next startAcquisition). */
+    void setDurationSeconds (int sec);
+
+    /** Resets per-probe counters and history when acquisition starts. */
+    bool startAcquisition() override;
+
 private:
 
     Array<ProbeMetrics>               probeMetrics;   // written audio / read UI
     std::vector<ProbeProcessingState> procState;      // audio-thread only
     std::mutex                        metricsMutex;
+    std::atomic<int>                  durationSeconds { 30 };
 
     std::vector<std::vector<int>> probeChannelIndices; // global buffer indices of DATA channels per stream
-    int                          totalProbes = 0;
+    int                           totalProbes = 0;
 
     void finalizeRms     (int pi);
     void finalizeFFT     (int pi);
