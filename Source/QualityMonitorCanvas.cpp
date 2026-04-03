@@ -496,24 +496,36 @@ void DataSnapshotPanel::paint (Graphics& g)
     b.removeFromRight (PLOT_PAD);
     auto pb = b;
 
+    const int pw_i = pb.getWidth();
+    const int ph_i = pb.getHeight();
+    if (pw_i <= 0 || ph_i <= 0)
+        return;
+
     // Draw border around plot area
     g.setColour (findColour (ThemeColours::outline));
     g.drawRect (pb.expanded (1), 1);
 
-    float range = maxUV - minUV;
-    float rowH  = float (pb.getHeight()) / float (numCh);
-    float colW  = float (pb.getWidth())  / float (SNAPSHOT_SAMPLES);
+    const float range = maxUV - minUV;
 
-    for (int c = 0; c < numCh; ++c)
+    // --- Snapshot via BitmapData ---
     {
-        const float* row = snapshot.data() + c * SNAPSHOT_SAMPLES;
-        float y = float (pb.getY()) + float (c) * rowH;
-        for (int s = 0; s < SNAPSHOT_SAMPLES; ++s)
+        Image snapshotImg (Image::RGB, pw_i, ph_i, true, SoftwareImageType());
+        snapshotImg.clear (snapshotImg.getBounds(), findColour (ThemeColours::defaultFill));
+        Image::BitmapData bmd (snapshotImg, Image::BitmapData::writeOnly);
+
+        for (int y = 0; y < ph_i; ++y)
         {
-            g.setColour (ColourMaps::cividis (jlimit (0.0f, 1.0f, (row[s] - minUV) / range)));
-            g.fillRect (float (pb.getX()) + float (s) * colW, y,
-                        std::max (colW, 1.0f), std::max (rowH, 1.0f));
+            const int c = jlimit (0, numCh - 1, y * numCh / ph_i);
+            const float* row = snapshot.data() + c * SNAPSHOT_SAMPLES;
+            for (int x = 0; x < pw_i; ++x)
+            {
+                const int   s = jlimit (0, SNAPSHOT_SAMPLES - 1, x * SNAPSHOT_SAMPLES / pw_i);
+                const float t = jlimit (0.0f, 1.0f, (row[s] - minUV) / range);
+                bmd.setPixelColour (x, y, ColourMaps::cividis (t));
+            }
         }
+
+        g.drawImageAt (snapshotImg, pb.getX(), pb.getY());
     }
 
     // Colour bar (labels overlaid inside)
