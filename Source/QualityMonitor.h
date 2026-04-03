@@ -116,6 +116,10 @@ struct ProbeProcessingState
     std::vector<int>   spikeCount;
     int spikeSampleCount = 0;
 
+    // Snapshot ring buffer — audio-thread only, no lock needed
+    std::vector<float> snapshotRing;    // [numChannels * SNAPSHOT_SAMPLES]
+    int                snapshotPos = 0; // next write position (wraps around)
+
     // Duration tracking (audio-thread only, no lock needed)
     int     rmsWindowSamples      = 6000;  // 200 ms at this stream's sample rate
     int64_t totalSamplesAllowed   = 0;  // 0 = unlimited
@@ -138,6 +142,9 @@ struct ProbeProcessingState
         wasBelowThresh.assign (nCh, true);
         spikeCount.assign    (nCh, 0);
         spikeSampleCount   = 0;
+
+        snapshotRing.assign (nCh * SNAPSHOT_SAMPLES, 0.0f);
+        snapshotPos = 0;
 
         totalSamplesAllowed   = 0;
         totalSamplesProcessed = 0;

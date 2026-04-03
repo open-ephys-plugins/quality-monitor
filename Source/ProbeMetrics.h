@@ -28,7 +28,7 @@
 
 static constexpr int  FFT_SIZE            = 4096;
 static constexpr int  FFT_BINS            = FFT_SIZE / 2 + 1;   // r2c output bins
-static constexpr int  SNAPSHOT_SAMPLES    = 256;
+static constexpr int  SNAPSHOT_SAMPLES    = 1024;
 
 enum class ProbeStatus { UNKNOWN, PASS, WARN, FAIL };
 

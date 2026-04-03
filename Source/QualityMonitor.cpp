@@ -230,7 +230,7 @@ void QualityMonitor::process (AudioBuffer<float>& buffer)
             }
         }
 
-        // 3. Raw voltage snapshot (cheapest: overwrite every buffer)
+        // 3. Raw voltage snapshot: accumulate into audio-thread ring buffer
         captureSnapshot (pi, buffer);
 
         // 4. Finalize FFT when enough windows have accumulated
@@ -264,9 +264,9 @@ void QualityMonitor::finalizeRms (int pi)
     std::vector<float> localRms (nCh);
     for (int c = 0; c < nCh; ++c)
     {
-        const float rmsV = float (std::sqrt (ps.rmsSumSq[c] / n));
-        localRms[c] = rmsV * 1.0e6f; // V → µV for display
-        ps.spikeThreshV[c] = std::max (rmsV * 5.0f, 1e-7f); // adaptive spike thr
+        const float rms = float (std::sqrt (ps.rmsSumSq[c] / n));
+        localRms[c] = rms;
+        ps.spikeThreshV[c] = std::max (rms * 5.0f, 1e-7f); // adaptive spike thr
         ps.rmsSumSq[c] = 0.0;
     }
     ps.rmsSampleCount = 0;
@@ -286,6 +286,19 @@ void QualityMonitor::finalizeRms (int pi)
         for (int c = 0; c < nCh; ++c)
             m.rmsHistory[frameOff + c] = localRms[c];
         m.rmsHistoryFrames++;
+    }
+
+    // Linearize snapshot ring buffer into probeMetrics (lock already held)
+    {
+        const int writePos = ps.snapshotPos;
+        const int tail     = SNAPSHOT_SAMPLES - writePos;
+        for (int c = 0; c < nCh; ++c)
+        {
+            const float* ring = ps.snapshotRing.data() + c * SNAPSHOT_SAMPLES;
+            float*       dst  = m.dataSnapshot.data()  + c * SNAPSHOT_SAMPLES;
+            std::copy (ring + writePos, ring + SNAPSHOT_SAMPLES, dst);
+            std::copy (ring,            ring + writePos,         dst + tail);
+        }
     }
 
     m.recomputeStatus();
@@ -408,16 +421,18 @@ void QualityMonitor::captureSnapshot (int pi, AudioBuffer<float>& buffer)
 {
     const auto& chIndices = probeChannelIndices[pi];
     const int nCh = (int) chIndices.size();
-    const int N = std::min (buffer.getNumSamples(), SNAPSHOT_SAMPLES);
+    const int numSamples = getNumSamplesInBlock (probeStreamIds[pi]);
+    auto& ps = procState[pi];
+    const int N = std::min (numSamples, SNAPSHOT_SAMPLES);
 
-    std::lock_guard<std::mutex> lock (metricsMutex);
-    auto& m = probeMetrics.getReference (pi);
-    for (int c = 0; c < nCh; ++c)
+    // Write into the ring buffer (audio-thread only — no lock needed)
+    for (int s = 0; s < N; ++s)
     {
-        const float* src = buffer.getReadPointer (chIndices[c]);
-        float* dst = m.dataSnapshot.data() + c * SNAPSHOT_SAMPLES;
-        for (int i = 0; i < N; ++i)
-            dst[i] = src[i] * 1.0e6f; // V → µV
+        const int dst = ps.snapshotPos;
+        for (int c = 0; c < nCh; ++c)
+            ps.snapshotRing[c * SNAPSHOT_SAMPLES + dst] =
+                buffer.getReadPointer (chIndices[c])[s];
+        ps.snapshotPos = (ps.snapshotPos + 1) % SNAPSHOT_SAMPLES;
     }
 }
 
@@ -472,7 +487,9 @@ bool QualityMonitor::startAcquisition()
         ps.spikeSampleCount = 0;
         ps.fftRingPos       = 0;
         ps.fftWinCount      = 0;
-        std::fill (ps.powerAccum.begin(), ps.powerAccum.end(), 0.0);
+        std::fill (ps.powerAccum.begin(),   ps.powerAccum.end(),   0.0);
+        std::fill (ps.snapshotRing.begin(), ps.snapshotRing.end(), 0.0f);
+        ps.snapshotPos = 0;
     }
 
     // Reset probeMetrics history (under lock)
