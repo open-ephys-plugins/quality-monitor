@@ -82,8 +82,12 @@ void QualityMonitor::updateSettings()
         return;
 
     probeChannelIndices.resize (totalProbes);
+    probeStreamIds.resize (totalProbes);
     for (int pi = 0; pi < totalProbes; ++pi)
+    {
         probeChannelIndices[pi] = std::move (channelIndicesPerStream[pi]);
+        probeStreamIds[pi] = validStreams[pi]->getStreamId();
+    }
 
     // Allocate metrics and processing state
     {
@@ -121,10 +125,10 @@ void QualityMonitor::updateSettings()
 void QualityMonitor::process (AudioBuffer<float>& buffer)
 {
     const int totalCh = buffer.getNumChannels();
-    const int numSamples = buffer.getNumSamples();
 
     for (int pi = 0; pi < totalProbes; ++pi)
     {
+        const int numSamples = getNumSamplesInBlock (probeStreamIds[pi]);
         const auto& chIndices = probeChannelIndices[pi];
         const int nCh = (int) chIndices.size();
         if (nCh == 0 || chIndices.back() >= totalCh)
@@ -136,16 +140,57 @@ void QualityMonitor::process (AudioBuffer<float>& buffer)
         if (ps.processingDone)
             continue;
 
-        // 1. RMS accumulation
-        for (int c = 0; c < nCh; ++c)
+        // 1 & 3. RMS + spike accumulation in RMS_WINDOW_SAMPLES-sized chunks so
+        // that each finalized frame covers exactly RMS_WINDOW_SAMPLES samples
+        // regardless of the audio-callback buffer size.  Without chunking, a
+        // large buffer (e.g. 10 000 samples) generates only one frame per call
+        // instead of the expected 10000/6000 ≈ 1.67, causing the heatmap to
+        // appear to stop at ~60 % (18 s) of a 30 s window.
         {
-            const float* src = buffer.getReadPointer (chIndices[c]);
-            double sq = 0.0;
-            for (int i = 0; i < numSamples; ++i)
-                sq += double (src[i]) * double (src[i]);
-            ps.rmsSumSq[c] += sq;
+            int rmsOffset = 0;
+            int rmsRemain = numSamples;
+
+            while (rmsRemain > 0)
+            {
+                const int space = RMS_WINDOW_SAMPLES - ps.rmsSampleCount;
+                const int chunk = std::min (rmsRemain, space);
+
+                // RMS accumulation for this chunk
+                for (int c = 0; c < nCh; ++c)
+                {
+                    const float* src = buffer.getReadPointer (chIndices[c]) + rmsOffset;
+                    double sq = 0.0;
+                    for (int i = 0; i < chunk; ++i)
+                        sq += double (src[i]) * double (src[i]);
+                    ps.rmsSumSq[c] += sq;
+                }
+
+                // Spike detection for this chunk
+                for (int c = 0; c < nCh; ++c)
+                {
+                    const float* src = buffer.getReadPointer (chIndices[c]) + rmsOffset;
+                    const float thr = ps.spikeThreshV[c];
+                    for (int i = 0; i < chunk; ++i)
+                    {
+                        const bool below = src[i] < -thr;
+                        if (below && ! ps.wasBelowThresh[c])
+                            ps.spikeCount[c]++;
+                        ps.wasBelowThresh[c] = below;
+                    }
+                }
+
+                ps.rmsSampleCount   += chunk;
+                ps.spikeSampleCount += chunk;
+                rmsOffset           += chunk;
+                rmsRemain           -= chunk;
+
+                if (ps.rmsSampleCount >= RMS_WINDOW_SAMPLES)
+                {
+                    finalizeRms    (pi);
+                    finalizeSpikes (pi);
+                }
+            }
         }
-        ps.rmsSampleCount += numSamples;
 
         // 2. FFT ring-buffer accumulation
         {
@@ -185,34 +230,14 @@ void QualityMonitor::process (AudioBuffer<float>& buffer)
             }
         }
 
-        // 3. Spike detection (negative threshold crossings)
-        for (int c = 0; c < nCh; ++c)
-        {
-            const float* src = buffer.getReadPointer (chIndices[c]);
-            const float thr = ps.spikeThreshV[c];
-            for (int i = 0; i < numSamples; ++i)
-            {
-                const bool below = src[i] < -thr;
-                if (below && ! ps.wasBelowThresh[c])
-                    ps.spikeCount[c]++;
-                ps.wasBelowThresh[c] = below;
-            }
-        }
-        ps.spikeSampleCount += numSamples;
-
-        // 4. Raw voltage snapshot (cheapest: overwrite every buffer)
+        // 3. Raw voltage snapshot (cheapest: overwrite every buffer)
         captureSnapshot (pi, buffer);
 
-        // 5. Finalize windows when enough samples have accumulated
-        if (ps.rmsSampleCount >= RMS_WINDOW_SAMPLES)
-        {
-            finalizeRms (pi);
-            finalizeSpikes (pi);
-        }
+        // 4. Finalize FFT when enough windows have accumulated
         if (ps.fftWinCount >= 8)
             finalizeFFT (pi);
 
-        // 6. Track total samples; end processing when duration elapses
+        // 5. Track total samples; end processing when duration elapses
         ps.totalSamplesProcessed += numSamples;
         if (ps.totalSamplesAllowed > 0 &&
             ps.totalSamplesProcessed >= ps.totalSamplesAllowed)

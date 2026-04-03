@@ -196,6 +196,7 @@ private:
     std::atomic<int>                  durationSeconds { 30 };
 
     std::vector<std::vector<int>> probeChannelIndices; // global buffer indices of DATA channels per stream
+    std::vector<uint16>           probeStreamIds;      // stream ID for each probe (for per-stream sample count)
     int                           totalProbes = 0;
 
     void finalizeRms     (int pi);
