@@ -29,7 +29,6 @@
 static constexpr int  FFT_SIZE            = 4096;
 static constexpr int  FFT_BINS            = FFT_SIZE / 2 + 1;   // r2c output bins
 static constexpr int  SNAPSHOT_SAMPLES    = 256;
-static constexpr int  RMS_WINDOW_SAMPLES  = 6000;               // 200 ms @ 30 kHz
 
 enum class ProbeStatus { UNKNOWN, PASS, WARN, FAIL };
 
@@ -58,7 +57,8 @@ struct ProbeMetrics
     // RMS time-series heatmap: one frame per RMS window (~200 ms), durationSec * 5 total frames
     std::vector<float> rmsHistory;      // [rmsHistoryMaxFrames * numChannels]
     int rmsHistoryFrames    = 0;        // frames accumulated so far
-    int rmsHistoryMaxFrames = 150;      // = durationSec * (sampleRate / RMS_WINDOW_SAMPLES)
+    int rmsWindowSamples     = 6000;    // 200 ms worth of samples at this stream's sample rate
+    int rmsHistoryMaxFrames = 150;      // = durationSec * (sampleRate / rmsWindowSamples)
     int analysisDurationSec = 30;       // for X-axis labelling in the canvas
 
     // Acquisition state
@@ -74,7 +74,8 @@ struct ProbeMetrics
         numChannels         = nCh;
         sampleRate          = sr;
         analysisDurationSec = durationSec;
-        const int maxFrames = std::max (1, int (float (durationSec) * sr / float (RMS_WINDOW_SAMPLES)));
+        rmsWindowSamples    = std::max (1, int (sr * 0.2f)); // 200 ms at this stream's sample rate
+        const int maxFrames = std::max (1, int (float (durationSec) * sr / float (rmsWindowSamples)));
         rmsHistoryMaxFrames = maxFrames;
         rmsHistoryFrames    = 0;
         processingDone      = false;

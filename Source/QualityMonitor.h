@@ -117,12 +117,14 @@ struct ProbeProcessingState
     int spikeSampleCount = 0;
 
     // Duration tracking (audio-thread only, no lock needed)
+    int     rmsWindowSamples      = 6000;  // 200 ms at this stream's sample rate
     int64_t totalSamplesAllowed   = 0;  // 0 = unlimited
     int64_t totalSamplesProcessed = 0;
     bool    processingDone        = false;
 
-    void allocate (int nCh)
+    void allocate (int nCh, int windowSamples)
     {
+        rmsWindowSamples   = windowSamples;
         rmsSumSq.assign      (nCh, 0.0);
         rmsSampleCount     = 0;
 

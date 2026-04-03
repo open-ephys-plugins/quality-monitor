@@ -117,7 +117,7 @@ void QualityMonitor::updateSettings()
         const int   nCh = (int) probeChannelIndices[pi].size();
         const float sr  = validStreams[pi]->getSampleRate();
         const int   dur = durationSeconds.load();
-        procState[pi].allocate (nCh);
+        procState[pi].allocate (nCh, probeMetrics.getReference(pi).rmsWindowSamples);
         procState[pi].totalSamplesAllowed = int64_t (dur) * int64_t (sr + 0.5f);
     }
 }
@@ -140,8 +140,8 @@ void QualityMonitor::process (AudioBuffer<float>& buffer)
         if (ps.processingDone)
             continue;
 
-        // 1 & 3. RMS + spike accumulation in RMS_WINDOW_SAMPLES-sized chunks so
-        // that each finalized frame covers exactly RMS_WINDOW_SAMPLES samples
+        // 1 & 3. RMS + spike accumulation in rmsWindowSamples-sized chunks so
+        // that each finalized frame covers exactly rmsWindowSamples samples
         // regardless of the audio-callback buffer size.  Without chunking, a
         // large buffer (e.g. 10 000 samples) generates only one frame per call
         // instead of the expected 10000/6000 ≈ 1.67, causing the heatmap to
@@ -152,7 +152,7 @@ void QualityMonitor::process (AudioBuffer<float>& buffer)
 
             while (rmsRemain > 0)
             {
-                const int space = RMS_WINDOW_SAMPLES - ps.rmsSampleCount;
+                const int space = ps.rmsWindowSamples - ps.rmsSampleCount;
                 const int chunk = std::min (rmsRemain, space);
 
                 // RMS accumulation for this chunk
@@ -184,7 +184,7 @@ void QualityMonitor::process (AudioBuffer<float>& buffer)
                 rmsOffset           += chunk;
                 rmsRemain           -= chunk;
 
-                if (ps.rmsSampleCount >= RMS_WINDOW_SAMPLES)
+                if (ps.rmsSampleCount >= ps.rmsWindowSamples)
                 {
                     finalizeRms    (pi);
                     finalizeSpikes (pi);
@@ -483,7 +483,7 @@ bool QualityMonitor::startAcquisition()
             auto& m = probeMetrics.getReference (pi);
             const float sr  = m.sampleRate;
             const int   nCh = m.numChannels;
-            const int   maxFrames = std::max (1, int (float (dur) * sr / float (RMS_WINDOW_SAMPLES)));
+            const int   maxFrames = std::max (1, int (float (dur) * sr / float (m.rmsWindowSamples)));
 
             m.processingDone      = false;
             m.rmsHistoryFrames    = 0;
