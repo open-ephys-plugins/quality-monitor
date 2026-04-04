@@ -396,16 +396,33 @@ void QualityMonitor::finalizeSpikes (int pi)
 {
     auto& ps = procState[pi];
     const int nCh = (int) probeChannelIndices[pi].size();
-    const float elapsedSec = std::max (
-        float (ps.spikeSampleCount) / probeMetrics[pi].sampleRate, 0.001f);
+
+    // First window used bootstrap threshold — discard its counts so spikes
+    // detected before the adaptive threshold was calibrated don't bias the average.
+    if (!ps.spikeWarmupDone)
+    {
+        std::fill (ps.spikeCount.begin(), ps.spikeCount.end(), 0);
+        ps.spikeSampleCount = 0;
+        ps.spikeWarmupDone  = true;
+        return;
+    }
+
+    // Accumulate window counts into run totals, then reset the window
+    for (int c = 0; c < nCh; ++c)
+    {
+        ps.cumSpikeCount[c] += ps.spikeCount[c];
+        ps.spikeCount[c]     = 0;
+    }
+    ps.cumSpikeSamples  += ps.spikeSampleCount;
+    ps.spikeSampleCount  = 0;
+
+    // Average rate over the entire run so far
+    const float totalElapsedSec = std::max (
+        float (ps.cumSpikeSamples) / probeMetrics[pi].sampleRate, 0.001f);
 
     std::vector<float> localRates (nCh);
     for (int c = 0; c < nCh; ++c)
-    {
-        localRates[c] = float (ps.spikeCount[c]) / elapsedSec;
-        ps.spikeCount[c] = 0;
-    }
-    ps.spikeSampleCount = 0;
+        localRates[c] = float (ps.cumSpikeCount[c]) / totalElapsedSec;
 
     std::lock_guard<std::mutex> lock (metricsMutex);
     auto& m = probeMetrics.getReference (pi);
@@ -485,6 +502,9 @@ bool QualityMonitor::startAcquisition()
         std::fill (ps.rmsSumSq.begin(),    ps.rmsSumSq.end(),    0.0);
         std::fill (ps.spikeCount.begin(),  ps.spikeCount.end(),  0);
         ps.spikeSampleCount = 0;
+        std::fill (ps.cumSpikeCount.begin(), ps.cumSpikeCount.end(), 0LL);
+        ps.cumSpikeSamples  = 0;
+        ps.spikeWarmupDone  = false;
         ps.fftRingPos       = 0;
         ps.fftWinCount      = 0;
         std::fill (ps.powerAccum.begin(),   ps.powerAccum.end(),   0.0);

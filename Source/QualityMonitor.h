@@ -111,10 +111,13 @@ struct ProbeProcessingState
     std::vector<double> powerAccum;     // [numChannels * FFT_BINS]
 
     // Spike detection
-    std::vector<float> spikeThreshV;    // adaptive 5× RMS, in raw V
-    std::vector<bool>  wasBelowThresh;
-    std::vector<int>   spikeCount;
-    int spikeSampleCount = 0;
+    std::vector<float>   spikeThreshV;    // adaptive 5× RMS, in raw V
+    std::vector<bool>    wasBelowThresh;
+    std::vector<int>     spikeCount;      // window spikes (reset each 200 ms window)
+    int                  spikeSampleCount = 0;
+    std::vector<int64_t> cumSpikeCount;   // run-total spikes per channel since acquisition start
+    int64_t              cumSpikeSamples  = 0; // run-total samples counted for spikes
+    bool                 spikeWarmupDone  = false; // skip first window (uncalibrated threshold)
 
     // Snapshot ring buffer — audio-thread only, no lock needed
     std::vector<float> snapshotRing;    // [numChannels * SNAPSHOT_SAMPLES]
@@ -142,6 +145,9 @@ struct ProbeProcessingState
         wasBelowThresh.assign (nCh, true);
         spikeCount.assign    (nCh, 0);
         spikeSampleCount   = 0;
+        cumSpikeCount.assign (nCh, 0LL);
+        cumSpikeSamples    = 0;
+        spikeWarmupDone    = false;
 
         snapshotRing.assign (nCh * SNAPSHOT_SAMPLES, 0.0f);
         snapshotPos = 0;
