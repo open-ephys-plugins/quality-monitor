@@ -80,12 +80,6 @@ static void drawBadge (Graphics& g, Rectangle<int> r, Colour bg, const String& t
 static Font interRegular  (float size) { return Font (FontOptions ("Inter", "Regular",   size)); }
 static Font interSemiBold (float size) { return Font (FontOptions ("Inter", "Semi Bold", size)); }
 
-// Returns a point size scaled to the component height h, clamped to [minSz, maxSz].
-static float fscale (int h, float fraction, float minSz, float maxSz)
-{
-    return jlimit (minSz, maxSz, float (h) * fraction);
-}
-
 // Draws Y-axis channel ticks.
 // tickCol  — caller-supplied colour (use defaultText.withAlpha for secondary elements)
 // fontSize — caller-computed dynamic size
@@ -157,12 +151,11 @@ void RmsHeatmapPanel::paint (Graphics& g)
     g.setColour (findColour (ThemeColours::outline));
     g.drawRect (b, 1);
 
-    const int   H       = getHeight();
-    const float titleSz = fscale (H, 0.044f, 11.0f, 18.0f);
-    const float metaSz  = fscale (H, 0.034f,  9.0f, 14.0f);
-    const float tickSz  = fscale (H, 0.028f,  8.0f, 11.0f);
+    const float titleSz = 16.0f;
+    const float metaSz  = 14.0f;
+    const float tickSz  =  11.0f;
     const Colour textCol = findColour (ThemeColours::defaultText);
-    const Colour tickCol = textCol.withAlpha (0.6f);
+    const Colour tickCol = textCol.withAlpha (0.8f);
 
     b.reduce (PLOT_PAD, PLOT_PAD);
 
@@ -334,6 +327,7 @@ void PowerSpectrumPanel::updateData (const ProbeMetrics& m)
     gMaxDb = (gMax_ > -1e19f) ? gMax_ : 0.0f;
     if (gMaxDb <= gMinDb)
         gMaxDb = gMinDb + 1.0f;
+    hasData = (gMax_ > -1e19f);
 
     // Compute mean dB per channel for the live strip
     channelMeanDb.assign (numCh, gMinDb);
@@ -384,12 +378,11 @@ void PowerSpectrumPanel::paint (Graphics& g)
     g.drawRect (b, 1);
 
     // Dynamic font sizes
-    const int   H       = getHeight();
-    const float titleSz = fscale (H, 0.044f, 11.0f, 18.0f);
-    const float metaSz  = fscale (H, 0.034f,  9.0f, 14.0f);
-    const float tickSz  = fscale (H, 0.028f,  8.0f, 11.0f);
+    const float titleSz = 16.0f;
+    const float metaSz  = 14.0f;
+    const float tickSz  =  11.0f;
     const Colour textCol = findColour (ThemeColours::defaultText);
-    const Colour tickCol = textCol.withAlpha (0.6f);
+    const Colour tickCol = textCol.withAlpha (0.8f);
 
     b.reduce (PLOT_PAD, PLOT_PAD);
 
@@ -436,18 +429,22 @@ void PowerSpectrumPanel::paint (Graphics& g)
     // Each pixel's channel is determined by its Y coordinate; frequency bin by X.
     {
         Image heatmap (Image::RGB, pw_i, ph_i, true, SoftwareImageType());
-        Image::BitmapData bmd (heatmap, Image::BitmapData::writeOnly);
-
-        for (int y = 0; y < ph_i; ++y)
+        heatmap.clear (heatmap.getBounds(), findColour (ThemeColours::defaultFill));
+        if (hasData)
         {
-            const int c = jlimit (0, numCh - 1, y * numCh / ph_i);
-            const float* row = spectrum.data() + c * FFT_BINS;
-            for (int x = 0; x < pw_i; ++x)
+            Image::BitmapData bmd (heatmap, Image::BitmapData::writeOnly);
+
+            for (int y = 0; y < ph_i; ++y)
             {
-                const int   k  = jlimit (1, FFT_BINS - 1, 1 + x * (FFT_BINS - 2) / pw_i);
-                const float db = row[k] > 0.0f ? 10.0f * std::log10 (row[k]) : gMinDb;
-                const float t  = jlimit (0.0f, 1.0f, (db - gMinDb) / dbRange);
-                bmd.setPixelColour (x, y, ColourMaps::viridis (t));
+                const int c = jlimit (0, numCh - 1, y * numCh / ph_i);
+                const float* row = spectrum.data() + c * FFT_BINS;
+                for (int x = 0; x < pw_i; ++x)
+                {
+                    const int   k  = jlimit (1, FFT_BINS - 1, 1 + x * (FFT_BINS - 2) / pw_i);
+                    const float db = row[k] > 0.0f ? 10.0f * std::log10 (row[k]) : gMinDb;
+                    const float t  = jlimit (0.0f, 1.0f, (db - gMinDb) / dbRange);
+                    bmd.setPixelColour (x, y, ColourMaps::viridis (t));
+                }
             }
         }
 
@@ -532,12 +529,17 @@ void DataSnapshotPanel::updateData (const ProbeMetrics& m)
 
     // Compute mean |sample| per channel for the live strip
     channelMeanUV.assign (numCh, 0.0f);
+    hasData = false;
     for (int c = 0; c < numCh && ! snapshot.empty(); ++c)
     {
         const float* row = snapshot.data() + c * SNAPSHOT_SAMPLES;
         float sum = 0.0f;
         for (int s = 0; s < SNAPSHOT_SAMPLES; ++s)
-            sum += std::abs (row[s]);
+        {
+            const float av = std::abs (row[s]);
+            sum += av;
+            if (av > 0.0f) hasData = true;
+        }
         channelMeanUV[c] = sum / float (SNAPSHOT_SAMPLES);
     }
 
@@ -554,12 +556,11 @@ void DataSnapshotPanel::paint (Graphics& g)
     g.drawRect (b, 1);
 
     // Dynamic font sizes
-    const int   H       = getHeight();
-    const float titleSz = fscale (H, 0.044f, 11.0f, 18.0f);
-    const float metaSz  = fscale (H, 0.034f,  9.0f, 14.0f);
-    const float tickSz  = fscale (H, 0.028f,  8.0f, 11.0f);
+    const float titleSz = 16.0f;
+    const float metaSz  = 14.0f;
+    const float tickSz  =  11.0f;
     const Colour textCol = findColour (ThemeColours::defaultText);
-    const Colour tickCol = textCol.withAlpha (0.6f);
+    const Colour tickCol = textCol.withAlpha (0.8f);
 
     b.reduce (PLOT_PAD, PLOT_PAD);
 
@@ -601,17 +602,20 @@ void DataSnapshotPanel::paint (Graphics& g)
     {
         Image snapshotImg (Image::RGB, pw_i, ph_i, true, SoftwareImageType());
         snapshotImg.clear (snapshotImg.getBounds(), findColour (ThemeColours::defaultFill));
-        Image::BitmapData bmd (snapshotImg, Image::BitmapData::writeOnly);
-
-        for (int y = 0; y < ph_i; ++y)
+        if (hasData)
         {
-            const int c = jlimit (0, numCh - 1, y * numCh / ph_i);
-            const float* row = snapshot.data() + c * SNAPSHOT_SAMPLES;
-            for (int x = 0; x < pw_i; ++x)
+            Image::BitmapData bmd (snapshotImg, Image::BitmapData::writeOnly);
+
+            for (int y = 0; y < ph_i; ++y)
             {
-                const int   s = jlimit (0, SNAPSHOT_SAMPLES - 1, x * SNAPSHOT_SAMPLES / pw_i);
-                const float t = jlimit (0.0f, 1.0f, (row[s] - minUV) / range);
-                bmd.setPixelColour (x, y, ColourMaps::cividis (t));
+                const int c = jlimit (0, numCh - 1, y * numCh / ph_i);
+                const float* row = snapshot.data() + c * SNAPSHOT_SAMPLES;
+                for (int x = 0; x < pw_i; ++x)
+                {
+                    const int   s = jlimit (0, SNAPSHOT_SAMPLES - 1, x * SNAPSHOT_SAMPLES / pw_i);
+                    const float t = jlimit (0.0f, 1.0f, (row[s] - minUV) / range);
+                    bmd.setPixelColour (x, y, ColourMaps::cividis (t));
+                }
             }
         }
 
@@ -721,12 +725,11 @@ void SpikeRatePanel::paint (Graphics& g)
     g.drawRect (b, 1);
 
     // Dynamic font sizes
-    const int   H       = getHeight();
-    const float titleSz = fscale (H, 0.044f, 11.0f, 18.0f);
-    const float metaSz  = fscale (H, 0.034f,  9.0f, 14.0f);
-    const float tickSz  = fscale (H, 0.028f,  8.0f, 11.0f);
+    const float titleSz = 16.0f;
+    const float metaSz  = 14.0f;
+    const float tickSz  =  11.0f;
     const Colour textCol = findColour (ThemeColours::defaultText);
-    const Colour tickCol = textCol.withAlpha (0.6f);
+    const Colour tickCol = textCol.withAlpha (0.8f);
 
     b.reduce (PLOT_PAD, PLOT_PAD);
 
@@ -756,7 +759,7 @@ void SpikeRatePanel::paint (Graphics& g)
     float px = float (pb.getX()), py = float (pb.getY());
     float pw = float (pb.getWidth()), ph = float (pb.getHeight());
 
-    // Paint background andborder around plot area
+    // Paint background and border around plot area
     g.setColour (findColour (ThemeColours::defaultFill));
     g.fillRect (pb);
     g.setColour (findColour (ThemeColours::outline));
@@ -866,13 +869,24 @@ void ProbeListModel::paintListBoxItem (int row, Graphics& g, int width, int heig
     auto         b  = Rectangle<int> (0, 0, width, height);
     Colour       sc = m.status == ProbeStatus::UNKNOWN ? parent->findColour (ThemeColours::defaultFill) : QCColours::statusCol (m.status);
 
+    if (row % 2 == 0)
+    {
+        g.setColour (parent->findColour (ThemeColours::componentBackground).brighter (0.1f));
+        g.fillRect (b.toFloat());
+    }
+    else
+    {
+        g.setColour (parent->findColour (ThemeColours::componentBackground).darker (0.1f));
+        g.fillRect (b.toFloat());
+    }
+
     // Row background
     if (rowIsSelected)
     {
         g.setColour (sc.withAlpha (0.15f));
-        g.fillRoundedRectangle (b.toFloat().reduced (3, 2), 5.0f);
-        g.setColour (sc.withAlpha (0.60f));
-        g.drawRoundedRectangle (b.toFloat().reduced (3, 2), 5.0f, 1.5f);
+        g.fillRoundedRectangle (b.toFloat().reduced (2, 2), 5.0f);
+        g.setColour (parent->findColour (ThemeColours::defaultText).withAlpha (0.75f));
+        g.drawRoundedRectangle (b.toFloat().reduced (2, 2), 5.0f, 1.0f);
     }
 
     // Status dot
@@ -882,14 +896,14 @@ void ProbeListModel::paintListBoxItem (int row, Graphics& g, int width, int heig
     // Name
     String name = m.streamName.isEmpty() ? "Probe" : m.streamName;
     Colour textCol = parent->findColour (ThemeColours::defaultText);
-    g.setColour (rowIsSelected ? textCol : textCol.withAlpha (0.6f));
-    g.setFont (Font (12.0f, Font::bold));
-    g.drawText (name, 26, b.getY() + 6, width - 80, 15, Justification::centredLeft);
+    g.setColour (textCol);
+    g.setFont (interSemiBold (14.0f));
+    g.drawText (name, 26, b.getY(), width - 80, height / 2 - 3, Justification::bottomLeft);
 
     // Channel count
-    g.setColour (rowIsSelected ? textCol : textCol.withAlpha (0.6f));
-    g.setFont (Font (10.0f));
-    g.drawText (String (m.numChannels) + " ch", 26, b.getY() + 22, width - 80, 13, Justification::centredLeft);
+    g.setColour (textCol.withAlpha (0.75f));
+    g.setFont (interRegular (12.0f));
+    g.drawText (String (m.numChannels) + " ch", 26, b.getY() + height / 2 + 3, width - 80, height / 2 - 3, Justification::topLeft);
 
     // Status badge
     drawBadge (g, b.removeFromRight (50).reduced (6, 10), sc, QCColours::statusStr (m.status));
@@ -976,7 +990,7 @@ QualityMonitorCanvas::QualityMonitorCanvas (QualityMonitor* proc)
     statusIndicator = std::make_unique<Label>();
     statusIndicator->setText ("RUNNING", dontSendNotification);
     statusIndicator->setColour (Label::textColourId, Colour (0xff4caf50));
-    statusIndicator->setFont (Font (11.0f, Font::bold));
+    statusIndicator->setFont (interSemiBold (14.0f));
     addAndMakeVisible (statusIndicator.get());
 
     refreshRate = 5.0f;
@@ -1075,7 +1089,7 @@ void QualityMonitorCanvas::paint (Graphics& g)
     g.fillRect (1, HEADER_H - 1, getWidth() - 2, 1);
 
     // Sidebar background
-    g.setColour (findColour (ThemeColours::componentBackground));
+    g.setColour (findColour (ThemeColours::componentParentBackground));
     g.fillRect (0, HEADER_H, SIDEBAR_W, getHeight() - HEADER_H);
     g.setColour (findColour (ThemeColours::outline));
     g.fillRect (SIDEBAR_W - 1, HEADER_H, 1, getHeight() - HEADER_H);

@@ -79,6 +79,7 @@ private:
     int numNoisyCh = 0;
     float gMinDb = -120.0f;
     float gMaxDb =    0.0f;
+    bool  hasData = false;
     void drawColourBar (Graphics& g, Rectangle<float> r);
 };
 
@@ -96,6 +97,7 @@ private:
     int numCh = 0;
     float minUV = -50.0f;
     float maxUV = 50.0f;
+    bool  hasData = false;
 };
 
 // ─── SpikeRatePanel ──────────────────────────────────────────────────────────
