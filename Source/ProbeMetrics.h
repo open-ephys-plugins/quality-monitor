@@ -49,10 +49,11 @@ struct ProbeMetrics
     float powerlineSNRThresh = 10.0f;   // dB above median → noisy
 
     // Per-channel metrics (UI-thread copy)
-    std::vector<float> rmsUV;           // [numChannels]
-    std::vector<float> spikeRateHz;     // [numChannels]
-    std::vector<float> powerSpectrum;   // [numChannels * FFT_BINS], linear power
-    std::vector<float> dataSnapshot;    // [numChannels * SNAPSHOT_SAMPLES], µV
+    std::vector<float> rmsUV;              // [numChannels]
+    std::vector<float> spikeRateHz;        // [numChannels] cumulative time-average
+    std::vector<float> spikeRateLiveHz;    // [numChannels] most-recent window rate
+    std::vector<float> powerSpectrum;      // [numChannels * FFT_BINS], linear power
+    std::vector<float> dataSnapshot;       // [numChannels * SNAPSHOT_SAMPLES], µV
 
     // RMS time-series heatmap: one frame per RMS window (~200 ms), durationSec * 5 total frames
     std::vector<float> rmsHistory;      // [rmsHistoryMaxFrames * numChannels]
@@ -79,11 +80,12 @@ struct ProbeMetrics
         rmsHistoryMaxFrames = maxFrames;
         rmsHistoryFrames    = 0;
         processingDone      = false;
-        rmsUV.assign         (nCh, 0.0f);
-        spikeRateHz.assign   (nCh, 0.0f);
-        powerSpectrum.assign (nCh * FFT_BINS, 0.0f);
-        dataSnapshot.assign  (nCh * SNAPSHOT_SAMPLES, 0.0f);
-        rmsHistory.assign    (nCh * maxFrames, 0.0f);
+        rmsUV.assign            (nCh, 0.0f);
+        spikeRateHz.assign      (nCh, 0.0f);
+        spikeRateLiveHz.assign  (nCh, 0.0f);
+        powerSpectrum.assign    (nCh * FFT_BINS, 0.0f);
+        dataSnapshot.assign     (nCh * SNAPSHOT_SAMPLES, 0.0f);
+        rmsHistory.assign       (nCh * maxFrames, 0.0f);
     }
 
     void recomputeStatus()

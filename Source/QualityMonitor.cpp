@@ -407,6 +407,12 @@ void QualityMonitor::finalizeSpikes (int pi)
         return;
     }
 
+    // Compute per-window live rate BEFORE accumulating into cumulative totals
+    const float windowSec = std::max (float (ps.spikeSampleCount) / probeMetrics[pi].sampleRate, 0.001f);
+    std::vector<float> liveRates (nCh);
+    for (int c = 0; c < nCh; ++c)
+        liveRates[c] = float (ps.spikeCount[c]) / windowSec;
+
     // Accumulate window counts into run totals, then reset the window
     for (int c = 0; c < nCh; ++c)
     {
@@ -426,7 +432,8 @@ void QualityMonitor::finalizeSpikes (int pi)
 
     std::lock_guard<std::mutex> lock (metricsMutex);
     auto& m = probeMetrics.getReference (pi);
-    m.spikeRateHz = localRates;
+    m.spikeRateHz     = localRates;
+    m.spikeRateLiveHz = liveRates;
     m.numLowSpikeChannels = 0;
     for (float r : m.spikeRateHz)
         if (r < m.spikeRateFailHz)
