@@ -65,6 +65,7 @@ static constexpr int PLOT_PAD = 10;
 static constexpr int AXIS_L   = 36;   // left axis label width + tick mark length
 static constexpr int AXIS_B   = 30;   // bottom: tick labels (14 px) + axis title (14 px)
 static constexpr int CBAR_W   = 14;
+static constexpr int STRIP_W  = 48;   // per-channel live bar strip width
 
 static void drawBadge (Graphics& g, Rectangle<int> r, Colour bg, const String& text)
 {
@@ -190,6 +191,9 @@ void RmsHeatmapPanel::paint (Graphics& g)
     // Colour bar on right
     auto cbarBounds = b.removeFromRight (CBAR_W + 4).toFloat();
     b.removeFromRight (PLOT_PAD);
+    // Live per-channel strip (between main plot and gap before colour bar)
+    auto stripBounds = b.removeFromRight (STRIP_W);
+    b.removeFromRight (PLOT_PAD);
     b.removeFromLeft (AXIS_L);
     auto pb = b;
 
@@ -228,6 +232,31 @@ void RmsHeatmapPanel::paint (Graphics& g)
         }
 
         g.drawImageAt (heatmap, pb.getX(), pb.getY());
+    }
+
+    // --- Live per-channel strip (latest RMS, Inferno) ---
+    {
+        const int sw = stripBounds.getWidth();
+        const int sh = ph_i;
+        const Colour bg = findColour (ThemeColours::defaultFill);
+        Image stripImg (Image::RGB, sw, sh, true, SoftwareImageType());
+        stripImg.clear (stripImg.getBounds(), bg);
+        if (! rmsUV.empty() && maxRms > 0.0f)
+        {
+            Image::BitmapData bmd (stripImg, Image::BitmapData::writeOnly);
+            for (int y = 0; y < sh; ++y)
+            {
+                const int ch  = jlimit (0, numCh - 1, y * numCh / sh);
+                const float t = jlimit (0.0f, 1.0f, rmsUV[ch] / maxRms);
+                const int   barW = jlimit (0, sw, int (t * float (sw)));
+                const Colour col = ColourMaps::inferno (t);
+                for (int x = 0; x < barW; ++x)
+                    bmd.setPixelColour (x, y, col);
+            }
+        }
+        g.drawImageAt (stripImg, stripBounds.getX(), stripBounds.getY());
+        g.setColour (findColour (ThemeColours::outline));
+        g.drawRect (stripBounds.expanded (1), 1);
     }
 
     // Threshold colour marker on the colour bar (horizontal line inside cbar)
@@ -306,6 +335,25 @@ void PowerSpectrumPanel::updateData (const ProbeMetrics& m)
     if (gMaxDb <= gMinDb)
         gMaxDb = gMinDb + 1.0f;
 
+    // Compute mean dB per channel for the live strip
+    channelMeanDb.assign (numCh, gMinDb);
+    for (int c = 0; c < numCh && ! spectrum.empty(); ++c)
+    {
+        const float* row = spectrum.data() + c * FFT_BINS;
+        float sum = 0.0f;
+        int   cnt = 0;
+        for (int k = 1; k < FFT_BINS; ++k)
+        {
+            if (row[k] > 0.0f)
+            {
+                sum += 10.0f * std::log10 (row[k]);
+                ++cnt;
+            }
+        }
+        if (cnt > 0)
+            channelMeanDb[c] = sum / float (cnt);
+    }
+
     repaint();
 }
 
@@ -365,6 +413,9 @@ void PowerSpectrumPanel::paint (Graphics& g)
 
     // Colour bar on right
     auto cbarBounds = b.removeFromRight (CBAR_W + 4).toFloat();
+    b.removeFromRight (PLOT_PAD);
+    // Live per-channel strip
+    auto stripBounds = b.removeFromRight (STRIP_W);
     b.removeFromLeft (AXIS_L);
     b.removeFromRight (PLOT_PAD);
     auto pb = b;
@@ -401,6 +452,30 @@ void PowerSpectrumPanel::paint (Graphics& g)
         }
 
         g.drawImageAt (heatmap, pb.getX(), pb.getY());
+    }
+
+    // --- Live per-channel strip (mean dB, Viridis) ---
+    {
+        const int sw = stripBounds.getWidth();
+        const int sh = ph_i;
+        Image stripImg (Image::RGB, sw, sh, true, SoftwareImageType());
+        stripImg.clear (stripImg.getBounds(), findColour (ThemeColours::defaultFill));
+        if (! channelMeanDb.empty() && dbRange > 0.0f)
+        {
+            Image::BitmapData bmd (stripImg, Image::BitmapData::writeOnly);
+            for (int y = 0; y < sh; ++y)
+            {
+                const int   ch  = jlimit (0, numCh - 1, y * numCh / sh);
+                const float t   = jlimit (0.0f, 1.0f, (channelMeanDb[ch] - gMinDb) / dbRange);
+                const int   barW = jlimit (0, sw, int (t * float (sw)));
+                const Colour col = ColourMaps::viridis (t);
+                for (int x = 0; x < barW; ++x)
+                    bmd.setPixelColour (x, y, col);
+            }
+        }
+        g.drawImageAt (stripImg, stripBounds.getX(), stripBounds.getY());
+        g.setColour (findColour (ThemeColours::outline));
+        g.drawRect (stripBounds.expanded (1), 1);
     }
 
     // Powerline harmonic markers: coloured lines only, no text labels (avoid clutter)
@@ -454,6 +529,18 @@ void DataSnapshotPanel::updateData (const ProbeMetrics& m)
         maxUV = std::max (absV[size_t (0.95f * float (absV.size()))], 1.0f);
         minUV = -maxUV;
     }
+
+    // Compute mean |sample| per channel for the live strip
+    channelMeanUV.assign (numCh, 0.0f);
+    for (int c = 0; c < numCh && ! snapshot.empty(); ++c)
+    {
+        const float* row = snapshot.data() + c * SNAPSHOT_SAMPLES;
+        float sum = 0.0f;
+        for (int s = 0; s < SNAPSHOT_SAMPLES; ++s)
+            sum += std::abs (row[s]);
+        channelMeanUV[c] = sum / float (SNAPSHOT_SAMPLES);
+    }
+
     repaint();
 }
 
@@ -492,6 +579,9 @@ void DataSnapshotPanel::paint (Graphics& g)
 
     // Colour bar on right
     auto cbar = b.removeFromRight (CBAR_W + 4).toFloat();
+    b.removeFromRight (PLOT_PAD);
+    // Live per-channel strip
+    auto stripBounds = b.removeFromRight (STRIP_W);
     b.removeFromLeft (AXIS_L);
     b.removeFromRight (PLOT_PAD);
     auto pb = b;
@@ -526,6 +616,30 @@ void DataSnapshotPanel::paint (Graphics& g)
         }
 
         g.drawImageAt (snapshotImg, pb.getX(), pb.getY());
+    }
+
+    // --- Live per-channel strip (peak |voltage|, Cividis, 0 → maxUV) ---
+    {
+        const int sw = stripBounds.getWidth();
+        const int sh = ph_i;
+        Image stripImg (Image::RGB, sw, sh, true, SoftwareImageType());
+        stripImg.clear (stripImg.getBounds(), findColour (ThemeColours::defaultFill));
+        if (! channelMeanUV.empty() && maxUV > 0.0f)
+        {
+            Image::BitmapData bmd (stripImg, Image::BitmapData::writeOnly);
+            for (int y = 0; y < sh; ++y)
+            {
+                const int   ch   = jlimit (0, numCh - 1, y * numCh / sh);
+                const float t    = jlimit (0.0f, 1.0f, channelMeanUV[ch] / maxUV);
+                const int   barW = jlimit (0, sw, int (t * float (sw)));
+                const Colour col = ColourMaps::cividis (t);
+                for (int x = 0; x < barW; ++x)
+                    bmd.setPixelColour (x, y, col);
+            }
+        }
+        g.drawImageAt (stripImg, stripBounds.getX(), stripBounds.getY());
+        g.setColour (findColour (ThemeColours::outline));
+        g.drawRect (stripBounds.expanded (1), 1);
     }
 
     // Colour bar (labels overlaid inside)
@@ -564,13 +678,16 @@ void DataSnapshotPanel::paint (Graphics& g)
 
 void SpikeRatePanel::updateData (const ProbeMetrics& m)
 {
-    rateHz     = m.spikeRateHz;
-    numCh      = m.numChannels;
+    rateHz      = m.spikeRateHz;
+    rateLiveHz  = m.spikeRateLiveHz;
+    numCh       = m.numChannels;
     spikeFailHz = m.spikeRateFailHz;
     spikeLowHz  = m.spikeRateLowHz;
-    numLowCh   = m.numLowSpikeChannels;
-    maxRateHz  = rateHz.empty() ? 30.0f : *std::max_element (rateHz.begin(), rateHz.end());
-    maxRateHz  = std::max (maxRateHz, spikeLowHz * 2.0f);
+    numLowCh    = m.numLowSpikeChannels;
+    maxRateHz      = rateHz.empty()     ? 30.0f : *std::max_element (rateHz.begin(),     rateHz.end());
+    maxRateHz      = std::max (maxRateHz, spikeLowHz * 2.0f);
+    maxLiveRateHz  = rateLiveHz.empty() ? maxRateHz : *std::max_element (rateLiveHz.begin(), rateLiveHz.end());
+    maxLiveRateHz  = std::max (maxLiveRateHz, spikeLowHz * 2.0f);
     repaint();
 }
 
@@ -632,6 +749,9 @@ void SpikeRatePanel::paint (Graphics& g)
 
     b.removeFromLeft (AXIS_L);
     b.removeFromBottom (AXIS_B);
+    // Live per-channel strip on the right
+    auto stripBounds = b.removeFromRight (STRIP_W);
+    b.removeFromRight (PLOT_PAD);
     auto pb = b;
     float px = float (pb.getX()), py = float (pb.getY());
     float pw = float (pb.getWidth()), ph = float (pb.getHeight());
@@ -670,6 +790,34 @@ void SpikeRatePanel::paint (Graphics& g)
     g.setColour (Colour (0xffff5252));
     g.setFont (interRegular (tickSz));
     g.drawText (String (spikeFailHz, 1) + " Hz", int (tx) + 2, int (py) + 2, 40, 10, Justification::centredLeft);
+
+    // --- Live per-channel strip (spike rate, threshold colours) ---
+    {
+        const int sw   = stripBounds.getWidth();
+        const int sh   = int (ph);
+        const int sy   = int (py);
+        Image stripImg (Image::RGB, sw, sh, true, SoftwareImageType());
+        stripImg.clear (stripImg.getBounds(), findColour (ThemeColours::defaultFill));
+        if (! rateLiveHz.empty() && maxLiveRateHz > 0.0f)
+        {
+            Image::BitmapData bmd (stripImg, Image::BitmapData::writeOnly);
+            for (int y = 0; y < sh; ++y)
+            {
+                const int   ch   = jlimit (0, numCh - 1, y * numCh / sh);
+                const float rate = rateLiveHz[ch];
+                const float t    = jlimit (0.0f, 1.0f, rate / maxLiveRateHz);
+                const int   barW = jlimit (0, sw, int (t * float (sw)));
+                const Colour col = rate < spikeFailHz ? Colour (0xfff44336)
+                                 : rate < spikeLowHz  ? Colour (0xffff9800)
+                                                      : Colour (0xff42a5f5);
+                for (int x = 0; x < barW; ++x)
+                    bmd.setPixelColour (x, y, col);
+            }
+        }
+        g.drawImageAt (stripImg, stripBounds.getX(), sy);
+        g.setColour (findColour (ThemeColours::outline));
+        g.drawRect (Rectangle<int> (stripBounds.getX(), sy, sw, sh).expanded (1), 1);
+    }
 
     // Legend top-right
     drawLegend (g, b.removeFromBottom (50).removeFromRight (110));

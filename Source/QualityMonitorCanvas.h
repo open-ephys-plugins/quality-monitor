@@ -72,6 +72,7 @@ public:
 
 private:
     std::vector<float> spectrum;
+    std::vector<float> channelMeanDb;  // mean dB per channel for live strip
     int numCh = 0;
     float sampleRate = 30000.0f;
     float powerlineHz = 60.0f;
@@ -91,6 +92,7 @@ public:
 
 private:
     std::vector<float> snapshot;
+    std::vector<float> channelMeanUV;  // mean |sample| per channel for live strip
     int numCh = 0;
     float minUV = -50.0f;
     float maxUV = 50.0f;
@@ -106,11 +108,13 @@ public:
 
 private:
     std::vector<float> rateHz;
+    std::vector<float> rateLiveHz;  // per-window live rates for the strip
     int numCh = 0;
     float spikeFailHz = 0.1f;
     float spikeLowHz = 2.0f;
     int numLowCh = 0;
-    float maxRateHz = 30.0f;
+    float maxRateHz     = 30.0f;
+    float maxLiveRateHz = 30.0f;
     void drawLegend (Graphics& g, Rectangle<int> r);
 };
 
