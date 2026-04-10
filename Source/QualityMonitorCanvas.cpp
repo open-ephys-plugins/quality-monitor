@@ -774,16 +774,16 @@ void SpikeRatePanel::paint (Graphics& g)
     }
 
     // Horizontal bars per channel
-    float rowH = std::max (1.0f, ph / float (numCh));
     for (int c = 0; c < numCh; ++c)
     {
         float rate = rateHz[c];
         float barW = jlimit (0.0f, pw, (rate / maxRateHz) * pw);
-        float y    = py + float (c) * rowH;
+        float y0   = py + float (c)     / float (numCh) * ph;
+        float y1   = py + float (c + 1) / float (numCh) * ph;
         g.setColour (rate < spikeFailHz ? Colour (0xfff44336)
                    : rate < spikeLowHz  ? Colour (0xffff9800)
                                         : Colour (0xff42a5f5));
-        g.fillRect (px, y, barW, rowH);
+        g.fillRect (px, y0, barW, std::max (1.0f, y1 - y0));
     }
 
     // Threshold vertical line
