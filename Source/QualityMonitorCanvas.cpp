@@ -81,7 +81,7 @@ static Font interRegular  (float size) { return Font (FontOptions ("Inter", "Reg
 static Font interSemiBold (float size) { return Font (FontOptions ("Inter", "Semi Bold", size)); }
 
 // Draws Y-axis channel ticks for the visible channel range [viewChStart, viewChEnd).
-// Automatically picks ~5 evenly-spaced channel indices within the view range.
+// Automatically picks evenly-spaced channel indices within the view range.
 // tickCol  — caller-supplied colour (use defaultText.withAlpha for secondary elements)
 // fontSize — caller-computed dynamic size
 static void drawChannelYTicks (Graphics& g, Rectangle<int> pb,
@@ -104,7 +104,7 @@ static void drawChannelYTicks (Graphics& g, Rectangle<int> pb,
     const int first = viewChStart;
     const int last  = viewChEnd - 1;
 
-    // How many intervals (gaps) can we fit? At least 1 so we always get first+last.
+    // How many intervals (gaps) can we fit?
     const int maxIntervals = std::max (1, pb.getHeight() / 40);
     // Round interval to a whole number of channels
     const int interval = std::max (1, viewCh / maxIntervals);
@@ -137,6 +137,36 @@ static void drawChannelYTicks (Graphics& g, Rectangle<int> pb,
 
 static constexpr int MIN_ZOOM_CH = 8;
 
+ZoomablePanel::ZoomablePanel()
+{
+    // SVG path data for the zoom-reset icon (zoom-cancel / zoom-reset from tabler-icons)
+    static const String kResetZoomPaths =
+        "M21 21l-6 -6 M3.268 12.043a7.017 7.017 0 0 0 6.634 4.957a7.012 7.012 0 0 0 7.043 -6.131a7 7 0 0 0 -5.314 -7.672a7.021 7.021 0 0 0 -8.241 4.403 M3 4v4h4";
+    
+    Path iconPath;
+    iconPath.addPath (Drawable::parseSVGPath (kResetZoomPaths));
+
+    resetZoomBtn = std::make_unique<ShapeButton> ("resetZoom", Colours::transparentBlack, Colours::transparentBlack, Colours::transparentBlack);
+    resetZoomBtn->setShape (iconPath, true, true, false);
+    resetZoomBtn->setTooltip ("Reset zoom");
+    resetZoomBtn->setMouseCursor (MouseCursor::PointingHandCursor);
+    resetZoomBtn->onClick = [this] { resetZoom(); };
+    resetZoomBtn->setAlwaysOnTop (true);
+    resetZoomBtn->setOutline (findColour (ThemeColours::defaultText), 1.5f);
+    addAndMakeVisible (resetZoomBtn.get());
+    resetZoomBtn->setVisible (false);
+}
+
+void ZoomablePanel::resized()
+{
+    resetZoomBtn->setBounds (getWidth() - 26, 10, 16, 16);
+}
+
+void ZoomablePanel::updateResetButtonVisibility()
+{
+    resetZoomBtn->setVisible (numCh > 0 && (viewChStart != 0 || viewChEnd != numCh));
+}
+
 void ZoomablePanel::initViewRange (int channelCount)
 {
     numCh = channelCount;
@@ -153,6 +183,7 @@ void ZoomablePanel::setViewRange (int start, int end)
     viewChEnd   = jlimit (MIN_ZOOM_CH, numCh, end);
     if (viewChEnd - viewChStart < MIN_ZOOM_CH)
         viewChEnd = std::min (numCh, viewChStart + MIN_ZOOM_CH);
+    updateResetButtonVisibility();
     repaint();
 }
 
@@ -194,6 +225,16 @@ void ZoomablePanel::mouseDown (const MouseEvent& e)
     {
         dragStartY           = e.y;
         dragStartViewChStart = viewChStart;
+        setMouseCursor (MouseCursor::DraggingHandCursor);
+    }
+}
+
+void ZoomablePanel::mouseUp (const MouseEvent& e)
+{
+    if (dragActive)
+    {
+        dragActive = false;
+        setMouseCursor (MouseCursor::ParentCursor);
     }
 }
 
@@ -206,6 +247,11 @@ void ZoomablePanel::mouseDrag (const MouseEvent& e)
     const int delta     = int ((dragStartY - e.y) * chPerPx);
     const int newStart  = jlimit (0, numCh - viewCh, dragStartViewChStart + delta);
     setViewRange (newStart, newStart + viewCh);
+}
+
+void ZoomablePanel::colourChanged()
+{
+    resetZoomBtn->setOutline (findColour (ThemeColours::defaultText), 1.5f);
 }
 
 // ─── RmsHeatmapPanel ─────────────────────────────────────────────────────────
@@ -1082,14 +1128,6 @@ void ContentComponent::resized()
     spikePanel->setBounds (b);
 }
 
-void ContentComponent::resetAllZoom()
-{
-    rmsPanel->resetZoom();
-    specPanel->resetZoom();
-    snapPanel->resetZoom();
-    spikePanel->resetZoom();
-}
-
 // ─── QualityMonitorCanvas ────────────────────────────────────────────────────
 
 QualityMonitorCanvas::QualityMonitorCanvas (QualityMonitor* proc)
@@ -1130,6 +1168,12 @@ QualityMonitorCanvas::QualityMonitorCanvas (QualityMonitor* proc)
     processor->setDurationSeconds (30); // match default selection
     addAndMakeVisible (durationCombo.get());
 
+    durationLabel = std::make_unique<Label>();
+    durationLabel->setText ("Duration", dontSendNotification);
+    durationLabel->setFont (interRegular (16.0f));
+    durationLabel->attachToComponent (durationCombo.get(), true);
+    addAndMakeVisible (durationLabel.get());
+
     captureBtn = std::make_unique<TextButton> ("Capture");
     captureBtn->setColour (TextButton::buttonColourId, Colour (0xff1976d2));
     addAndMakeVisible (captureBtn.get());
@@ -1138,14 +1182,10 @@ QualityMonitorCanvas::QualityMonitorCanvas (QualityMonitor* proc)
     saveBtn->setColour (TextButton::buttonColourId, Colour (0xff388e3c));
     addAndMakeVisible (saveBtn.get());
 
-    resetZoomBtn = std::make_unique<TextButton> ("Reset Zoom");
-    resetZoomBtn->onClick = [this] { content->resetAllZoom(); };
-    addAndMakeVisible (resetZoomBtn.get());
-
     statusIndicator = std::make_unique<Label>();
-    statusIndicator->setText ("RUNNING", dontSendNotification);
-    statusIndicator->setColour (Label::textColourId, Colour (0xff4caf50));
-    statusIndicator->setFont (interSemiBold (14.0f));
+    statusIndicator->setText ("WAITING", dontSendNotification);
+    statusIndicator->setColour (Label::textColourId, Colours::orange);
+    statusIndicator->setFont (interSemiBold (16.0f));
     addAndMakeVisible (statusIndicator.get());
 
     refreshRate = 5.0f;
@@ -1163,6 +1203,25 @@ void QualityMonitorCanvas::updateSettings()
     if (selectedProbe < localMetrics.size())
         probeListBox->selectRow (selectedProbe, false, true);
     refresh();
+}
+
+void QualityMonitorCanvas::beginAnimation()
+{
+    startCallbacks();
+
+    statusIndicator->setText ("RUNNING", dontSendNotification);
+    statusIndicator->setColour (Label::textColourId, Colours::royalblue);
+}
+
+void QualityMonitorCanvas::endAnimation()
+{
+    stopCallbacks();
+
+    if (statusIndicator->getText() != "DONE")
+    {
+        statusIndicator->setText ("WAITING", dontSendNotification);
+        statusIndicator->setColour (Label::textColourId, Colours::orange);
+    }
 }
 
 void QualityMonitorCanvas::refresh()
@@ -1187,12 +1246,7 @@ void QualityMonitorCanvas::refresh()
     if (m.processingDone)
     {
         statusIndicator->setText ("DONE", dontSendNotification);
-        statusIndicator->setColour (Label::textColourId, Colour (0xff42a5f5));
-    }
-    else
-    {
-        statusIndicator->setText ("RUNNING", dontSendNotification);
-        statusIndicator->setColour (Label::textColourId, Colour (0xff4caf50));
+        statusIndicator->setColour (Label::textColourId, Colours::mediumseagreen);
     }
 }
 
@@ -1211,14 +1265,14 @@ void QualityMonitorCanvas::layoutPanels()
     auto b = getLocalBounds();
 
     // Header strip
-    auto hdr = b.removeFromTop (HEADER_H).reduced (4, 3);
+    auto hdr = b.removeFromTop (HEADER_H).reduced (4, 5);
+    hdr.removeFromLeft (70); // leave space for duration label
     durationCombo->setBounds (hdr.removeFromLeft (80));
-    hdr.removeFromLeft (8);
+    hdr.removeFromLeft (10);
     captureBtn->setBounds (hdr.removeFromLeft (72));
-    hdr.removeFromLeft (4);
+    hdr.removeFromLeft (10);
     saveBtn->setBounds (hdr.removeFromLeft (60));
-    hdr.removeFromLeft (4);
-    resetZoomBtn->setBounds (hdr.removeFromLeft (110));
+    hdr.removeFromLeft (10);
     statusIndicator->setBounds (hdr.removeFromRight (90));
 
     // Sidebar
@@ -1251,13 +1305,10 @@ void QualityMonitorCanvas::paint (Graphics& g)
     g.setColour (findColour (ThemeColours::outline));
     g.fillRect (SIDEBAR_W - 1, HEADER_H, 1, getHeight() - HEADER_H);
 
-    // "PROBES" label in sidebar
+    // "Data Streams" label in sidebar
     g.setColour (findColour (ThemeColours::defaultFill));
     g.fillRect (0, HEADER_H, SIDEBAR_W - 1, 30);
     g.setColour (findColour (ThemeColours::defaultText));
-    g.setFont (FontOptions ("Inter", "Semi Bold", 14.0f));
+    g.setFont (interSemiBold (14.0f));
     g.drawText ("DATA STREAMS", 10, HEADER_H, SIDEBAR_W - 12, 30, Justification::centredLeft);
-
-    // Panel dividers inside content area (cosmetic — mirrored at viewport level)
-    // (The ContentComponent's own resized() layout handles panel borders)
 }

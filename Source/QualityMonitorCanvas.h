@@ -48,6 +48,8 @@ String statusStr (ProbeStatus s);
 class ZoomablePanel : public Component
 {
 public:
+    ZoomablePanel();
+
     // Called by subclass updateData() after numCh is set.
     void initViewRange (int channelCount);
 
@@ -57,11 +59,16 @@ public:
     // Restore full-probe view.
     void resetZoom();
 
+    void resized() override;
+
     // JUCE mouse overrides — all gated on lastPb (the plot bounds).
     void mouseWheelMove  (const MouseEvent& e, const MouseWheelDetails& w) override;
     void mouseDown       (const MouseEvent& e) override;
+    void mouseUp         (const MouseEvent& e) override;
     void mouseDrag       (const MouseEvent& e) override;
     void mouseDoubleClick(const MouseEvent& e) override;
+
+    void colourChanged() override;
 
 protected:
     int numCh       = 0;
@@ -70,9 +77,12 @@ protected:
     Rectangle<int> lastPb;   // cached plot-area bounds from most recent paint()
 
 private:
+    void updateResetButtonVisibility();
+
     int  dragStartY           = 0;
     int  dragStartViewChStart = 0;
     bool dragActive           = false;
+    std::unique_ptr<ShapeButton> resetZoomBtn;
 };
 
 // ─── RmsHeatmapPanel ─────────────────────────────────────────────────────────
@@ -203,7 +213,6 @@ public:
     static constexpr int MIN_PANEL_H = 400;
 
     void resized() override;
-    void resetAllZoom();
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ContentComponent)
 };
@@ -234,6 +243,12 @@ public:
     /** Draws the canvas background */
     void paint (Graphics& g) override;
 
+    /** Called when acquisition starts to allow it to start any rendering. */
+    void beginAnimation() override;
+
+    /** Called when acquisition stops to allow it to stop any rendering. */
+    void endAnimation() override;
+
 private:
     QualityMonitor* processor;
 
@@ -249,14 +264,14 @@ private:
     std::unique_ptr<ContentComponent> content;
 
     // Header controls
+    std::unique_ptr<Label>      durationLabel;
     std::unique_ptr<ComboBox>   durationCombo;
     std::unique_ptr<TextButton> captureBtn;
     std::unique_ptr<TextButton> saveBtn;
-    std::unique_ptr<TextButton> resetZoomBtn;
     std::unique_ptr<Label>      statusIndicator;
 
     static constexpr int SIDEBAR_W = 240;
-    static constexpr int HEADER_H  = 32;
+    static constexpr int HEADER_H  = 36;
 
     void selectProbe (int idx);
     void layoutPanels();
