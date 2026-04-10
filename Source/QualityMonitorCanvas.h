@@ -156,8 +156,8 @@ public:
     std::unique_ptr<DataSnapshotPanel>  snapPanel;
     std::unique_ptr<SpikeRatePanel>     spikePanel;
 
-    static constexpr int MIN_PANEL_W = 720;
-    static constexpr int MIN_PANEL_H = 480;
+    static constexpr int MIN_PANEL_W = 600;
+    static constexpr int MIN_PANEL_H = 400;
 
     void resized() override;
 

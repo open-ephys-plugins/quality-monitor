@@ -132,15 +132,15 @@ void RmsHeatmapPanel::drawColourBar (Graphics& g, Rectangle<float> r)
         g.setColour (ColourMaps::inferno (t));
         g.fillRect (r.getX(), r.getY() + float (y), r.getWidth(), 1.0f);
     }
-    // Labels overlaid inside the bar
-    g.setFont (interRegular (8.0f));
-    g.setColour (Colours::white.withAlpha (0.85f));
+    // Labels above and below the bar
+    g.setFont (interRegular (10.0f));
+    g.setColour (findColour (ThemeColours::defaultText).withAlpha (0.85f));
     g.drawText (String (int (maxRms)) + "μV",
-                int (r.getX()), int (r.getY()),
-                int (r.getWidth()), 10, Justification::centred);
-    g.drawText ("0",
-                int (r.getX()), int (r.getBottom()) - 10,
-                int (r.getWidth()), 10, Justification::centred);
+                int (r.getCentreX()) - 20, int (r.getY()) - 12,
+                40, 12, Justification::centred);
+    g.drawText (String (0) + "μV",
+                int (r.getCentreX()) - 20, int (r.getBottom()) + 1,
+                40, 12, Justification::centred);
 }
 
 void RmsHeatmapPanel::paint (Graphics& g)
@@ -359,13 +359,15 @@ void PowerSpectrumPanel::drawColourBar (Graphics& g, Rectangle<float> r)
         g.setColour (ColourMaps::viridis (t));
         g.fillRect (r.getX(), r.getY() + float (y), r.getWidth(), 1.0f);
     }
-    // Labels overlaid inside the bar
-    g.setFont (interRegular (8.0f));
-    g.setColour (Colours::white.withAlpha (0.85f));
+    // Labels above and below the bar
+    g.setFont (interRegular (10.0f));
+    g.setColour (findColour (ThemeColours::defaultText).withAlpha (0.85f));
     g.drawText (String (int (gMaxDb)) + "dB",
-                int (r.getX()), int (r.getY()),           int (r.getWidth()), 10, Justification::centred);
+                int (r.getCentreX()) - 20, int (r.getY()) - 12,
+                40, 12, Justification::centred);
     g.drawText (String (int (gMinDb)) + "dB",
-                int (r.getX()), int (r.getBottom()) - 10, int (r.getWidth()), 10, Justification::centred);
+                int (r.getCentreX()) - 20, int (r.getBottom()) + 1,
+                40, 12, Justification::centred);
 }
 
 void PowerSpectrumPanel::paint (Graphics& g)
@@ -646,18 +648,20 @@ void DataSnapshotPanel::paint (Graphics& g)
         g.drawRect (stripBounds.expanded (1), 1);
     }
 
-    // Colour bar (labels overlaid inside)
+    // Colour bar (labels above and below)
     for (int y = 0; y < int (cbar.getHeight()); ++y)
     {
         g.setColour (ColourMaps::cividis (1.0f - float (y) / cbar.getHeight()));
         g.fillRect (cbar.getX(), cbar.getY() + float (y), cbar.getWidth(), 1.0f);
     }
-    g.setFont (interRegular (8.0f));
-    g.setColour (Colours::white.withAlpha (0.85f));
+    g.setFont (interRegular (10.0f));
+    g.setColour (findColour (ThemeColours::defaultText).withAlpha (0.85f));
     g.drawText ("+" + String (int (maxUV)) + "μV",
-                int (cbar.getX()), int (cbar.getY()),           int (cbar.getWidth()), 10, Justification::centred);
+                int (cbar.getCentreX()) - 20, int (cbar.getY()) - 12,
+                40, 12, Justification::centred);
     g.drawText ("-" + String (int (maxUV)) + "μV",
-                int (cbar.getX()), int (cbar.getBottom()) - 10, int (cbar.getWidth()), 10, Justification::centred);
+                int (cbar.getCentreX()) - 20, int (cbar.getBottom()) + 1,
+                40, 12, Justification::centred);
 
     // Y axis: channel ticks
     drawChannelYTicks (g, pb, numCh, { 0, 96, 192, 288, 383 }, tickCol, tickSz);
