@@ -40,40 +40,77 @@ Colour statusCol (ProbeStatus s);
 String statusStr (ProbeStatus s);
 } // namespace QCColours
 
-// ─── RmsHeatmapPanel ─────────────────────────────────────────────────────────
-// Y axis = channels, X axis = time (one column per RMS window ~1 s)
-class RmsHeatmapPanel : public Component
+// ─── ZoomablePanel ────────────────────────────────────────────────────────────
+// Abstract base for all four metric panels.
+// Owns the shared Y-axis zoom/pan state and mouse interaction logic.
+// Subclasses implement paint() and updateData(), and call initViewRange() once
+// the channel count is known.
+class ZoomablePanel : public Component
 {
 public:
+    // Called by subclass updateData() after numCh is set.
+    void initViewRange (int channelCount);
+
+    // Zoom to an explicit channel range [start, end).
+    void setViewRange (int start, int end);
+
+    // Restore full-probe view.
+    void resetZoom();
+
+    // JUCE mouse overrides — all gated on lastPb (the plot bounds).
+    void mouseWheelMove  (const MouseEvent& e, const MouseWheelDetails& w) override;
+    void mouseDown       (const MouseEvent& e) override;
+    void mouseDrag       (const MouseEvent& e) override;
+    void mouseDoubleClick(const MouseEvent& e) override;
+
+protected:
+    int numCh       = 0;
+    int viewChStart = 0;
+    int viewChEnd   = 0;
+    Rectangle<int> lastPb;   // cached plot-area bounds from most recent paint()
+
+private:
+    int  dragStartY           = 0;
+    int  dragStartViewChStart = 0;
+    bool dragActive           = false;
+};
+
+// ─── RmsHeatmapPanel ─────────────────────────────────────────────────────────
+// Y axis = channels, X axis = time (one column per RMS window ~1 s)
+class RmsHeatmapPanel : public ZoomablePanel
+{
+public:
+    RmsHeatmapPanel() = default;
     void updateData (const ProbeMetrics& m);
     void paint (Graphics& g) override;
 
 private:
-    std::vector<float> rmsUV;           // latest RMS per channel (for badge count)
-    std::vector<float> rmsHistory;      // [maxFrames * numCh], filled left-to-right
+    std::vector<float> rmsUV;
+    std::vector<float> rmsHistory;
     int rmsHistoryFrames    = 0;
     int rmsHistoryMaxFrames = 150;
-    int durationSec         = 30;       // total analysis duration for X-axis labels
-    int numCh       = 0;
+    int durationSec         = 30;
     float threshUV  = 20.0f;
     int numHighRms  = 0;
     float maxRms    = 1.0f;
     bool processingDone = false;
     void drawColourBar (Graphics& g, Rectangle<float> r);
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (RmsHeatmapPanel)
 };
 
 // ─── PowerSpectrumPanel ──────────────────────────────────────────────────────
 // Channels on Y axis, frequency on X axis — power rendered as heatmap
-class PowerSpectrumPanel : public Component
+class PowerSpectrumPanel : public ZoomablePanel
 {
 public:
+    PowerSpectrumPanel() = default;
     void updateData (const ProbeMetrics& m);
     void paint (Graphics& g) override;
 
 private:
     std::vector<float> spectrum;
-    std::vector<float> channelMeanDb;  // mean dB per channel for live strip
-    int numCh = 0;
+    std::vector<float> channelMeanDb;
     float sampleRate = 30000.0f;
     float powerlineHz = 60.0f;
     int numNoisyCh = 0;
@@ -81,43 +118,49 @@ private:
     float gMaxDb =    0.0f;
     bool  hasData = false;
     void drawColourBar (Graphics& g, Rectangle<float> r);
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PowerSpectrumPanel)
 };
 
 // ─── DataSnapshotPanel ───────────────────────────────────────────────────────
 // Channels on Y axis, time samples on X axis (heatmap)
-class DataSnapshotPanel : public Component
+class DataSnapshotPanel : public ZoomablePanel
 {
 public:
+    DataSnapshotPanel() = default;
     void updateData (const ProbeMetrics& m);
     void paint (Graphics& g) override;
 
 private:
     std::vector<float> snapshot;
-    std::vector<float> channelMeanUV;  // mean |sample| per channel for live strip
-    int numCh = 0;
+    std::vector<float> channelMeanUV;
     float minUV = -50.0f;
     float maxUV = 50.0f;
     bool  hasData = false;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (DataSnapshotPanel)
 };
 
 // ─── SpikeRatePanel ──────────────────────────────────────────────────────────
 // Channels on Y axis, spike rate on X axis (horizontal bar chart)
-class SpikeRatePanel : public Component
+class SpikeRatePanel : public ZoomablePanel
 {
 public:
+    SpikeRatePanel() = default;
     void updateData (const ProbeMetrics& m);
     void paint (Graphics& g) override;
 
 private:
     std::vector<float> rateHz;
-    std::vector<float> rateLiveHz;  // per-window live rates for the strip
-    int numCh = 0;
+    std::vector<float> rateLiveHz;
     float spikeFailHz = 0.1f;
     float spikeLowHz = 2.0f;
     int numLowCh = 0;
     float maxRateHz     = 30.0f;
     float maxLiveRateHz = 30.0f;
     void drawLegend (Graphics& g, Rectangle<int> r);
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SpikeRatePanel)
 };
 
 // ─── ProbeListModel ──────────────────────────────────────────────────────────
@@ -160,6 +203,7 @@ public:
     static constexpr int MIN_PANEL_H = 400;
 
     void resized() override;
+    void resetAllZoom();
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ContentComponent)
 };
@@ -208,6 +252,7 @@ private:
     std::unique_ptr<ComboBox>   durationCombo;
     std::unique_ptr<TextButton> captureBtn;
     std::unique_ptr<TextButton> saveBtn;
+    std::unique_ptr<TextButton> resetZoomBtn;
     std::unique_ptr<Label>      statusIndicator;
 
     static constexpr int SIDEBAR_W = 240;
