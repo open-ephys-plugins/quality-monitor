@@ -1166,8 +1166,20 @@ QualityMonitorCanvas::QualityMonitorCanvas (QualityMonitor* proc)
     durationLabel->attachToComponent (durationCombo.get(), true);
     addAndMakeVisible (durationLabel.get());
 
+    autoStartBtn = std::make_unique<ToggleButton> ("Auto Start");
+    autoStartBtn->setClickingTogglesState (true);
+    autoStartBtn->setToggleState (true, dontSendNotification); // default ON
+    autoStartBtn->setTooltip ("Begin processing as soon as acquisition starts");
+    autoStartBtn->onClick = [this]
+    {
+        processor->setAutoStart (autoStartBtn->getToggleState());
+    };
+    addAndMakeVisible (autoStartBtn.get());
+
     captureBtn = std::make_unique<TextButton> ("Capture");
     captureBtn->setColour (TextButton::buttonColourId, Colour (0xff1976d2));
+    captureBtn->setTooltip ("Manually start data processing");
+    captureBtn->onClick = [this] { processor->startProcessing(); };
     addAndMakeVisible (captureBtn.get());
 
     saveBtn = std::make_unique<TextButton> ("Save");
@@ -1181,6 +1193,7 @@ QualityMonitorCanvas::QualityMonitorCanvas (QualityMonitor* proc)
     addAndMakeVisible (statusIndicator.get());
 
     refreshRate = 5.0f;
+    updateButtonStates();
 }
 
 QualityMonitorCanvas::~QualityMonitorCanvas() { stopTimer(); }
@@ -1200,20 +1213,27 @@ void QualityMonitorCanvas::updateSettings()
 void QualityMonitorCanvas::beginAnimation()
 {
     startCallbacks();
+    acquisitionActive = true;
 
     statusIndicator->setText ("RUNNING", dontSendNotification);
     statusIndicator->setColour (Label::textColourId, Colours::royalblue);
+    updateButtonStates();
 }
 
 void QualityMonitorCanvas::endAnimation()
 {
     stopCallbacks();
+    acquisitionActive = false;
 
     if (statusIndicator->getText() != "DONE")
     {
         statusIndicator->setText ("WAITING", dontSendNotification);
         statusIndicator->setColour (Label::textColourId, Colours::orange);
     }
+
+    captureBtn->setEnabled (false);
+    saveBtn->setEnabled (true);
+    durationCombo->setEnabled (true);
 }
 
 void QualityMonitorCanvas::refresh()
@@ -1240,6 +1260,8 @@ void QualityMonitorCanvas::refresh()
         statusIndicator->setText ("DONE", dontSendNotification);
         statusIndicator->setColour (Label::textColourId, Colours::mediumseagreen);
     }
+
+    updateButtonStates();
 }
 
 void QualityMonitorCanvas::selectProbe (int idx)
@@ -1261,6 +1283,8 @@ void QualityMonitorCanvas::layoutPanels()
     hdr.removeFromLeft (70); // leave space for duration label
     durationCombo->setBounds (hdr.removeFromLeft (80));
     hdr.removeFromLeft (10);
+    autoStartBtn->setBounds (hdr.removeFromLeft (100).reduced (0, 2));
+    hdr.removeFromLeft (10);
     captureBtn->setBounds (hdr.removeFromLeft (72));
     hdr.removeFromLeft (10);
     saveBtn->setBounds (hdr.removeFromLeft (60));
@@ -1279,6 +1303,29 @@ void QualityMonitorCanvas::layoutPanels()
     int cw = std::max (b.getWidth(),  2 * ContentComponent::MIN_PANEL_W);
     int ch = std::max (b.getHeight(), 2 * ContentComponent::MIN_PANEL_H);
     content->setSize (cw, ch);
+}
+
+void QualityMonitorCanvas::updateButtonStates()
+{    
+    // "processing ongoing" = analysis has started but at least one probe is not done yet
+    const bool active = processor->isProcessingActive();
+    bool allDone = ! active;
+    if (active)
+    {
+        allDone = true;
+        for (int i = 0; i < localMetrics.size(); ++i)
+            if (! localMetrics[i].processingDone) { allDone = false; break; }
+    }
+    const bool processingOngoing = active && ! allDone;
+
+    // Capture: enabled only when acquisition is live and no analysis is in flight
+    captureBtn->setEnabled (acquisitionActive && ! processingOngoing);
+
+    // Save: disabled while analysis is in flight
+    saveBtn->setEnabled (! processingOngoing);
+
+    // Duration selector: disabled while analysis is in flight
+    durationCombo->setEnabled (! processingOngoing);
 }
 
 void QualityMonitorCanvas::paint (Graphics& g)

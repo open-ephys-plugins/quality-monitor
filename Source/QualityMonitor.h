@@ -200,15 +200,31 @@ public:
     /** Set the analysis duration (read at next startAcquisition). */
     void setDurationSeconds (int sec);
 
-    /** Resets per-probe counters and history when acquisition starts. */
+    /** Resets per-probe counters and history when acquisition starts.
+        If autoStart is ON, processing begins immediately; otherwise it waits
+        for a manual startProcessing() call. */
     bool startAcquisition() override;
+
+    /** Called when acquisition stops. */
+    bool stopAcquisition() override;
+
+    /** Manually begin analysis (no-op if acquisition is not running). */
+    void startProcessing();
+
+    /** Enable or disable automatic processing start on acquisition. */
+    void setAutoStart (bool enabled);
+
+    /** True while analysis is running (between startProcessing and allDone). */
+    bool isProcessingActive()   const { return processingHasStarted.load(); }
 
 private:
 
     Array<ProbeMetrics>               probeMetrics;   // written audio / read UI
     std::vector<ProbeProcessingState> procState;      // audio-thread only
     std::mutex                        metricsMutex;
-    std::atomic<int>                  durationSeconds { 30 };
+    std::atomic<int>                  durationSeconds    { 30 };
+    std::atomic<bool>                 autoStartProcessing { true };
+    std::atomic<bool>                 processingHasStarted { false };
 
     std::vector<std::vector<int>> probeChannelIndices; // global buffer indices of DATA channels per stream
     std::vector<uint16>           probeStreamIds;      // stream ID for each probe (for per-stream sample count)
@@ -218,6 +234,9 @@ private:
     void finalizeFFT     (int pi);
     void finalizeSpikes  (int pi);
     void captureSnapshot (int pi, AudioBuffer<float>& buf);
+
+    /** Shared reset + start logic used by both startAcquisition and startProcessing. */
+    void doStartProcessing();
 
     /** Generates an assertion if this class leaks */
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (QualityMonitor);

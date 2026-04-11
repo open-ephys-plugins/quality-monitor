@@ -261,15 +261,19 @@ private:
     // Header controls
     std::unique_ptr<Label>      durationLabel;
     std::unique_ptr<ComboBox>   durationCombo;
+    std::unique_ptr<ToggleButton> autoStartBtn;
     std::unique_ptr<TextButton> captureBtn;
     std::unique_ptr<TextButton> saveBtn;
     std::unique_ptr<Label>      statusIndicator;
+
+    bool acquisitionActive = false;
 
     static constexpr int SIDEBAR_W = 240;
     static constexpr int HEADER_H  = 36;
 
     void selectProbe (int idx);
     void layoutPanels();
+    void updateButtonStates();
 
     /** Generates an assertion if this class leaks */
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (QualityMonitorCanvas)

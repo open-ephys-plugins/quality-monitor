@@ -124,6 +124,9 @@ void QualityMonitor::updateSettings()
 
 void QualityMonitor::process (AudioBuffer<float>& buffer)
 {
+    if (! processingHasStarted.load())
+        return;
+
     const int totalCh = buffer.getNumChannels();
 
     for (int pi = 0; pi < totalProbes; ++pi)
@@ -247,8 +250,18 @@ void QualityMonitor::process (AudioBuffer<float>& buffer)
             if (ps.fftWinCount > 0)    finalizeFFT (pi);
 
             ps.processingDone = true;
-            std::lock_guard<std::mutex> lock (metricsMutex);
-            probeMetrics.getReference (pi).processingDone = true;
+            {
+                std::lock_guard<std::mutex> lock (metricsMutex);
+                probeMetrics.getReference (pi).processingDone = true;
+            }
+
+            // If every probe is now done, clear the flag so a new Capture run
+            // can be started without stopping/restarting acquisition.
+            bool allDone = true;
+            for (int i = 0; i < totalProbes; ++i)
+                if (! procState[i].processingDone) { allDone = false; break; }
+            if (allDone)
+                processingHasStarted.store (false);
         }
     }
 }
@@ -497,36 +510,65 @@ void QualityMonitor::setDurationSeconds (int sec)
 
 bool QualityMonitor::startAcquisition()
 {
-    const int   dur = durationSeconds.load();
+    processingHasStarted.store (false);
 
-    // Reset procState (safe: audio thread not running yet)
+    if (autoStartProcessing.load())
+        doStartProcessing();
+
+    return true;
+}
+
+bool QualityMonitor::stopAcquisition()
+{
+    processingHasStarted.store (false);
+    return true;
+}
+
+void QualityMonitor::startProcessing()
+{
+    if (! CoreServices::getAcquisitionStatus() && ! processingHasStarted.load())
+        return;
+    doStartProcessing();
+}
+
+void QualityMonitor::setAutoStart (bool enabled)
+{
+    autoStartProcessing.store (enabled);
+}
+
+void QualityMonitor::doStartProcessing()
+{
+    const int dur = durationSeconds.load();
+
+    // Reset procState — safe because the audio thread either has not started
+    // yet (startAcquisition path) or processingHasStarted is still false so
+    // process() returns immediately without touching procState.
     for (int pi = 0; pi < totalProbes; ++pi)
     {
         auto& ps = procState[pi];
         ps.totalSamplesProcessed = 0;
         ps.processingDone        = false;
         ps.rmsSampleCount        = 0;
-        std::fill (ps.rmsSumSq.begin(),    ps.rmsSumSq.end(),    0.0);
-        std::fill (ps.spikeCount.begin(),  ps.spikeCount.end(),  0);
+        std::fill (ps.rmsSumSq.begin(),      ps.rmsSumSq.end(),      0.0);
+        std::fill (ps.spikeCount.begin(),    ps.spikeCount.end(),    0);
         ps.spikeSampleCount = 0;
         std::fill (ps.cumSpikeCount.begin(), ps.cumSpikeCount.end(), 0LL);
         ps.cumSpikeSamples  = 0;
         ps.spikeWarmupDone  = false;
         ps.fftRingPos       = 0;
         ps.fftWinCount      = 0;
-        std::fill (ps.powerAccum.begin(),   ps.powerAccum.end(),   0.0);
-        std::fill (ps.snapshotRing.begin(), ps.snapshotRing.end(), 0.0f);
+        std::fill (ps.powerAccum.begin(),    ps.powerAccum.end(),    0.0);
+        std::fill (ps.snapshotRing.begin(),  ps.snapshotRing.end(),  0.0f);
         ps.snapshotPos = 0;
     }
 
-    // Reset probeMetrics history (under lock)
     {
         std::lock_guard<std::mutex> lock (metricsMutex);
         for (int pi = 0; pi < totalProbes; ++pi)
         {
             auto& m = probeMetrics.getReference (pi);
-            const float sr  = m.sampleRate;
-            const int   nCh = m.numChannels;
+            const float sr        = m.sampleRate;
+            const int   nCh       = m.numChannels;
             const int   maxFrames = std::max (1, int (float (dur) * sr / float (m.rmsWindowSamples)));
 
             m.processingDone      = false;
@@ -540,5 +582,5 @@ bool QualityMonitor::startAcquisition()
         }
     }
 
-    return true;
+    processingHasStarted.store (true);
 }
