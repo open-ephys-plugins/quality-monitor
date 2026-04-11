@@ -200,53 +200,45 @@ void ZoomablePanel::mouseDoubleClick (const MouseEvent& e)
 
 void ZoomablePanel::mouseWheelMove (const MouseEvent& e, const MouseWheelDetails& w)
 {
-    if (numCh == 0 || !lastPb.contains (e.getPosition()) || !e.mods.isCommandDown())
+    if (numCh == 0 || !lastPb.contains (e.getPosition()))
     {
         Component::mouseWheelMove (e, w);
         return;
     }
-    const int viewCh = viewChEnd - viewChStart;
-    const float fracY    = jlimit (0.0f, 1.0f,
-                           float (e.y - lastPb.getY()) / float (lastPb.getHeight()));
-    const float cursorCh = float (viewChStart) + fracY * float (viewCh);
-    const float factor   = w.deltaY < 0.0f ? 1.3f : 0.7f;
-    const int   newCount = jlimit (MIN_ZOOM_CH, numCh, int (float (viewCh) * factor));
-    int newStart = int (cursorCh - fracY * float (newCount));
-    int newEnd   = newStart + newCount;
-    if (newStart < 0)     { newStart = 0;    newEnd = newCount; }
-    if (newEnd   > numCh) { newEnd   = numCh; newStart = numCh - newCount; }
-    setViewRange (newStart, newEnd);
-}
 
-void ZoomablePanel::mouseDown (const MouseEvent& e)
-{
-    dragActive = lastPb.contains (e.getPosition());
-    if (dragActive)
+    if (e.mods.isCommandDown())
     {
-        dragStartY           = e.y;
-        dragStartViewChStart = viewChStart;
-        setMouseCursor (MouseCursor::DraggingHandCursor);
-    }
-}
-
-void ZoomablePanel::mouseUp (const MouseEvent& e)
-{
-    if (dragActive)
-    {
-        dragActive = false;
-        setMouseCursor (MouseCursor::ParentCursor);
-    }
-}
-
-void ZoomablePanel::mouseDrag (const MouseEvent& e)
-{
-    if (!dragActive || numCh == 0 || lastPb.getHeight() <= 0)
+        // Cmd + wheel → zoom around cursor
+        const int   viewCh   = viewChEnd - viewChStart;
+        const float fracY    = jlimit (0.0f, 1.0f,
+                               float (e.y - lastPb.getY()) / float (lastPb.getHeight()));
+        const float cursorCh = float (viewChStart) + fracY * float (viewCh);
+        const float factor   = w.deltaY < 0.0f ? 1.3f : 0.7f;
+        const int   newCount = jlimit (MIN_ZOOM_CH, numCh, int (float (viewCh) * factor));
+        int newStart = int (cursorCh - fracY * float (newCount));
+        int newEnd   = newStart + newCount;
+        if (newStart < 0)     { newStart = 0;    newEnd = newCount; }
+        if (newEnd   > numCh) { newEnd   = numCh; newStart = numCh - newCount; }
+        setViewRange (newStart, newEnd);
         return;
-    const int viewCh    = viewChEnd - viewChStart;
-    const float chPerPx = float (viewCh) / float (lastPb.getHeight());
-    const int delta     = int ((dragStartY - e.y) * chPerPx);
-    const int newStart  = jlimit (0, numCh - viewCh, dragStartViewChStart + delta);
-    setViewRange (newStart, newStart + viewCh);
+    }
+
+    if (e.mods.isAltDown())
+    {
+        // Alt + wheel → pan the channel view
+        const int viewCh = viewChEnd - viewChStart;
+        if (lastPb.getHeight() <= 0)
+            return;
+        // Scroll ~10 % of the visible range per wheel tick, direction matches scroll
+        const int step     = std::max (1, int (float (viewCh) * 0.10f));
+        const int delta    = w.deltaY > 0.0f ? -step : step;
+        const int newStart = jlimit (0, numCh - viewCh, viewChStart + delta);
+        setViewRange (newStart, newStart + viewCh);
+        return;
+    }
+
+    // No modifier — let the event propagate to the Viewport
+    Component::mouseWheelMove (e, w);
 }
 
 void ZoomablePanel::colourChanged()

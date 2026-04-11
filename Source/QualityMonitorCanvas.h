@@ -61,13 +61,11 @@ public:
 
     void resized() override;
 
-    // JUCE mouse overrides — all gated on lastPb (the plot bounds).
+    // Cmd+wheel = zoom, Alt+wheel = pan, unmodified wheel = pass to Viewport.
     void mouseWheelMove  (const MouseEvent& e, const MouseWheelDetails& w) override;
-    void mouseDown       (const MouseEvent& e) override;
-    void mouseUp         (const MouseEvent& e) override;
-    void mouseDrag       (const MouseEvent& e) override;
     void mouseDoubleClick(const MouseEvent& e) override;
 
+    // Updates the outline colour of the reset-zoom button when the theme changes.
     void colourChanged() override;
 
 protected:
@@ -79,9 +77,6 @@ protected:
 private:
     void updateResetButtonVisibility();
 
-    int  dragStartY           = 0;
-    int  dragStartViewChStart = 0;
-    bool dragActive           = false;
     std::unique_ptr<ShapeButton> resetZoomBtn;
 };
 
