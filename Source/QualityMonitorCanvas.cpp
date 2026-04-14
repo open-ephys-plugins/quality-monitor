@@ -1179,7 +1179,13 @@ QualityMonitorCanvas::QualityMonitorCanvas (QualityMonitor* proc)
     captureBtn = std::make_unique<TextButton> ("Capture");
     captureBtn->setColour (TextButton::buttonColourId, Colour (0xff1976d2));
     captureBtn->setTooltip ("Manually start data processing");
-    captureBtn->onClick = [this] { processor->startProcessing(); };
+    captureBtn->onClick = [this]
+    {
+        if (processor->isProcessingActive())
+            processor->stopProcessing();
+        else
+            processor->startProcessing();
+    };
     addAndMakeVisible (captureBtn.get());
 
     saveBtn = std::make_unique<TextButton> ("Save");
@@ -1318,8 +1324,21 @@ void QualityMonitorCanvas::updateButtonStates()
     }
     const bool processingOngoing = active && ! allDone;
 
-    // Capture: enabled only when acquisition is live and no analysis is in flight
-    captureBtn->setEnabled (acquisitionActive && ! processingOngoing);
+    // Capture/Stop: when processing is ongoing the button becomes a Stop button
+    if (processingOngoing)
+    {
+        captureBtn->setButtonText ("Stop");
+        captureBtn->setColour (TextButton::buttonColourId, Colour (0xffd32f2f));
+        captureBtn->setTooltip ("Stop the current analysis run");
+        captureBtn->setEnabled (true);
+    }
+    else
+    {
+        captureBtn->setButtonText ("Capture");
+        captureBtn->setColour (TextButton::buttonColourId, Colour (0xff1976d2));
+        captureBtn->setTooltip ("Manually start data processing");
+        captureBtn->setEnabled (acquisitionActive);
+    }
 
     // Save: disabled while analysis is in flight
     saveBtn->setEnabled (! processingOngoing);

@@ -211,6 +211,9 @@ public:
     /** Manually begin analysis (no-op if acquisition is not running). */
     void startProcessing();
 
+    /** Abort an in-progress analysis run. */
+    void stopProcessing();
+
     /** Enable or disable automatic processing start on acquisition. */
     void setAutoStart (bool enabled);
 

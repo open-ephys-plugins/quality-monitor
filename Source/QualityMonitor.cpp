@@ -531,6 +531,11 @@ void QualityMonitor::startProcessing()
     doStartProcessing();
 }
 
+void QualityMonitor::stopProcessing()
+{
+    processingHasStarted.store (false);
+}
+
 void QualityMonitor::setAutoStart (bool enabled)
 {
     autoStartProcessing.store (enabled);
