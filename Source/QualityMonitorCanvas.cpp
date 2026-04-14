@@ -452,23 +452,58 @@ void PowerSpectrumPanel::updateData (const ProbeMetrics& m)
     gMaxDb  = 100.0f;
     hasData = ! spectrum.empty();
 
-    // Compute mean dB per channel for the live strip
-    channelMeanDb.assign (numCh, 0.0f);
-    for (int c = 0; c < numCh && ! spectrum.empty(); ++c)
+    // Compute per-channel band power for the two overview strips
     {
-        const float* row = spectrum.data() + c * FFT_BINS;
-        float sum = 0.0f;
-        int   cnt = 0;
-        for (int k = 1; k < FFT_BINS; ++k)
+        const float hzPerBin  = sampleRate / float (FFT_SIZE);
+        auto hzToBin = [&] (float hz) -> int
         {
-            if (row[k] > 0.0f)
+            return jlimit (0, FFT_BINS - 1, int (hz / hzPerBin));
+        };
+
+        const int kHFStart = hzToBin (10000.0f);
+        const int kHFEnd   = std::min (FFT_BINS - 1, hzToBin (15000.0f));
+
+        channelPowerlineDb.assign (numCh, 0.0f);
+        channelHFNoiseDb.assign   (numCh, 0.0f);
+
+        for (int c = 0; c < numCh && ! spectrum.empty(); ++c)
+        {
+            const float* row = spectrum.data() + c * FFT_BINS;
+
+            // Powerline band: ±3 bins around fundamental + first harmonic
+            float plSum = 0.0f;
+            int   plCnt = 0;
+            for (float h : { powerlineHz, powerlineHz * 2.0f })
             {
-                sum += 10.0f * std::log10 (row[k]);
-                ++cnt;
+                if (h <= 0.0f || h >= sampleRate / 2.0f)
+                    continue;
+                const int bin = hzToBin (h);
+                for (int k = bin - 3; k <= bin + 3; ++k)
+                {
+                    if (k >= 1 && k < FFT_BINS && row[k] > 0.0f)
+                    {
+                        plSum += row[k];
+                        ++plCnt;
+                    }
+                }
             }
+            if (plCnt > 0 && plSum > 0.0f)
+                channelPowerlineDb[c] = 10.0f * std::log10 (plSum / float (plCnt));
+
+            // High-frequency noise band: 10 kHz – 15 kHz
+            float hfSum = 0.0f;
+            int   hfCnt = 0;
+            for (int k = kHFStart; k <= kHFEnd; ++k)
+            {
+                if (row[k] > 0.0f)
+                {
+                    hfSum += row[k];
+                    ++hfCnt;
+                }
+            }
+            if (hfCnt > 0 && hfSum > 0.0f)
+                channelHFNoiseDb[c] = 10.0f * std::log10 (hfSum / float (hfCnt));
         }
-        if (cnt > 0)
-            channelMeanDb[c] = sum / float (cnt);
     }
 
     repaint();
@@ -532,8 +567,11 @@ void PowerSpectrumPanel::paint (Graphics& g)
     // Colour bar on right
     auto cbarBounds = b.removeFromRight (CBAR_W + 4).toFloat();
     b.removeFromRight (PLOT_PAD);
-    // Live per-channel strip
-    auto stripBounds = b.removeFromRight (STRIP_W);
+    // Two per-channel overview strips: HF noise (rightmost) + powerline noise (left of it)
+    auto stripZone    = b.removeFromRight (STRIP_W * 2 + 4);
+    auto hfStripBounds = stripZone.removeFromRight (STRIP_W);
+    stripZone.removeFromRight (4);          // gap between the two strips
+    auto plStripBounds = stripZone;
     b.removeFromLeft (AXIS_L);
     b.removeFromRight (PLOT_PAD);
     auto pb = b;
@@ -582,20 +620,20 @@ void PowerSpectrumPanel::paint (Graphics& g)
         g.drawImageAt (heatmap, pb.getX(), pb.getY());
     }
 
-    // --- Live per-channel strip (mean dB, Viridis) ---
+    // --- Powerline noise overview strip ---
     {
-        const int sw = stripBounds.getWidth();
+        const int sw = plStripBounds.getWidth();
         const int sh = ph_i;
         Image stripImg (Image::RGB, sw, sh, true, SoftwareImageType());
         stripImg.clear (stripImg.getBounds(), findColour (ThemeColours::componentParentBackground));
-        if (! channelMeanDb.empty())
+        if (! channelPowerlineDb.empty())
         {
             Image::BitmapData bmd (stripImg, Image::BitmapData::writeOnly);
             for (int y = 0; y < sh; ++y)
             {
                 const int   ch   = jlimit (0, numCh - 1,
                     viewChStart + y * viewCh_sp / sh);
-                const float v    = jlimit (1e-6f, 100.0f, channelMeanDb[ch]);
+                const float v    = jlimit (1e-6f, 100.0f, std::max (0.0f, channelPowerlineDb[ch]));
                 const float t    = jlimit (0.0f, 1.0f, std::log10 (v) / 2.0f);
                 const int   barW = jlimit (0, sw, int (t * float (sw)));
                 const Colour col = ColourMaps::viridis (t);
@@ -603,10 +641,42 @@ void PowerSpectrumPanel::paint (Graphics& g)
                     bmd.setPixelColour (x, y, col);
             }
         }
-        g.drawImageAt (stripImg, stripBounds.getX(), stripBounds.getY());
+        g.drawImageAt (stripImg, plStripBounds.getX(), plStripBounds.getY());
         g.setColour (findColour (ThemeColours::outline));
-        g.drawRect (stripBounds.expanded (1), 1);
+        g.drawRect (plStripBounds.expanded (1), 1);
     }
+
+    // --- HF noise overview strip (10–15 kHz) ---
+    {
+        const int sw = hfStripBounds.getWidth();
+        const int sh = ph_i;
+        Image stripImg (Image::RGB, sw, sh, true, SoftwareImageType());
+        stripImg.clear (stripImg.getBounds(), findColour (ThemeColours::componentParentBackground));
+        if (! channelHFNoiseDb.empty())
+        {
+            Image::BitmapData bmd (stripImg, Image::BitmapData::writeOnly);
+            for (int y = 0; y < sh; ++y)
+            {
+                const int   ch   = jlimit (0, numCh - 1,
+                    viewChStart + y * viewCh_sp / sh);
+                const float v    = jlimit (1e-6f, 100.0f, std::max (0.0f, channelHFNoiseDb[ch]));
+                const float t    = jlimit (0.0f, 1.0f, std::log10 (v) / 2.0f);
+                const int   barW = jlimit (0, sw, int (t * float (sw)));
+                const Colour col = ColourMaps::viridis (t);
+                for (int x = 0; x < barW; ++x)
+                    bmd.setPixelColour (x, y, col);
+            }
+        }
+        g.drawImageAt (stripImg, hfStripBounds.getX(), hfStripBounds.getY());
+        g.setColour (findColour (ThemeColours::outline));
+        g.drawRect (hfStripBounds.expanded (1), 1);
+    }
+
+    // Strip labels below each overview column
+    g.setColour (tickCol);
+    g.setFont (interRegular (tickSz));
+    g.drawText ("PL",  plStripBounds.getX(), pb.getBottom() + 4, plStripBounds.getWidth(), 11, Justification::centred);
+    g.drawText ("HF", hfStripBounds.getX(), pb.getBottom() + 4, hfStripBounds.getWidth(), 11, Justification::centred);
 
     // Powerline harmonic markers: coloured lines only, no text labels (avoid clutter)
     const float harmonics[] = { powerlineHz, powerlineHz * 2.0f, 50.0f, 100.0f };
