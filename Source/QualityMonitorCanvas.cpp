@@ -353,7 +353,7 @@ void RmsHeatmapPanel::paint (Graphics& g)
     // --- Heatmap via BitmapData ---
     {
         Image heatmap (Image::RGB, pw_i, ph_i, true, SoftwareImageType());
-        heatmap.clear (heatmap.getBounds(), findColour (ThemeColours::defaultFill));
+        heatmap.clear (heatmap.getBounds(), findColour (ThemeColours::componentParentBackground));
         Image::BitmapData bmd (heatmap, Image::BitmapData::writeOnly);
 
         // Only paint frames that have been accumulated
@@ -384,7 +384,7 @@ void RmsHeatmapPanel::paint (Graphics& g)
     {
         const int sw = stripBounds.getWidth();
         const int sh = ph_i;
-        const Colour bg = findColour (ThemeColours::defaultFill);
+        const Colour bg = findColour (ThemeColours::componentParentBackground);
         Image stripImg (Image::RGB, sw, sh, true, SoftwareImageType());
         stripImg.clear (stripImg.getBounds(), bg);
         if (! rmsUV.empty() && maxRms > 0.0f)
@@ -590,7 +590,7 @@ void PowerSpectrumPanel::paint (Graphics& g)
     // Each pixel's channel is determined by its Y coordinate; frequency bin by X.
     {
         Image heatmap (Image::RGB, pw_i, ph_i, true, SoftwareImageType());
-        heatmap.clear (heatmap.getBounds(), findColour (ThemeColours::defaultFill));
+        heatmap.clear (heatmap.getBounds(), findColour (ThemeColours::componentParentBackground));
         if (hasData)
         {
             Image::BitmapData bmd (heatmap, Image::BitmapData::writeOnly);
@@ -618,7 +618,7 @@ void PowerSpectrumPanel::paint (Graphics& g)
         const int sw = stripBounds.getWidth();
         const int sh = ph_i;
         Image stripImg (Image::RGB, sw, sh, true, SoftwareImageType());
-        stripImg.clear (stripImg.getBounds(), findColour (ThemeColours::defaultFill));
+        stripImg.clear (stripImg.getBounds(), findColour (ThemeColours::componentParentBackground));
         if (! channelMeanDb.empty() && dbRange > 0.0f)
         {
             Image::BitmapData bmd (stripImg, Image::BitmapData::writeOnly);
@@ -733,7 +733,7 @@ void DataSnapshotPanel::paint (Graphics& g)
 
     g.setColour (tickCol);
     g.setFont (interRegular (metaSz));
-    g.drawText ("Color Map  Cividis", b.removeFromTop (META_H), Justification::centredLeft);
+    g.drawText ("WINDOW SIZE " + String (SNAPSHOT_SAMPLES), b.removeFromTop (META_H), Justification::centredLeft);
 
     b.reduce (0, PLOT_PAD);
     if (snapshot.empty())
@@ -769,7 +769,7 @@ void DataSnapshotPanel::paint (Graphics& g)
     // --- Snapshot via BitmapData ---
     {
         Image snapshotImg (Image::RGB, pw_i, ph_i, true, SoftwareImageType());
-        snapshotImg.clear (snapshotImg.getBounds(), findColour (ThemeColours::defaultFill));
+        snapshotImg.clear (snapshotImg.getBounds(), findColour (ThemeColours::componentParentBackground));
         if (hasData)
         {
             Image::BitmapData bmd (snapshotImg, Image::BitmapData::writeOnly);
@@ -796,7 +796,7 @@ void DataSnapshotPanel::paint (Graphics& g)
         const int sw = stripBounds.getWidth();
         const int sh = ph_i;
         Image stripImg (Image::RGB, sw, sh, true, SoftwareImageType());
-        stripImg.clear (stripImg.getBounds(), findColour (ThemeColours::defaultFill));
+        stripImg.clear (stripImg.getBounds(), findColour (ThemeColours::componentParentBackground));
         if (! channelMeanUV.empty() && maxUV > 0.0f)
         {
             Image::BitmapData bmd (stripImg, Image::BitmapData::writeOnly);
@@ -940,7 +940,7 @@ void SpikeRatePanel::paint (Graphics& g)
     const float vChF      = float (viewCh_sr > 0 ? viewCh_sr : 1);
 
     // Paint background and border around plot area
-    g.setColour (findColour (ThemeColours::defaultFill));
+    g.setColour (findColour (ThemeColours::componentParentBackground));
     g.fillRect (pb);
     g.setColour (findColour (ThemeColours::outline));
     g.drawRect (pb.expanded (1), 1);
@@ -980,7 +980,7 @@ void SpikeRatePanel::paint (Graphics& g)
         const int sh   = int (ph);
         const int sy   = int (py);
         Image stripImg (Image::RGB, sw, sh, true, SoftwareImageType());
-        stripImg.clear (stripImg.getBounds(), findColour (ThemeColours::defaultFill));
+        stripImg.clear (stripImg.getBounds(), findColour (ThemeColours::componentParentBackground));
         if (! rateLiveHz.empty() && maxLiveRateHz > 0.0f)
         {
             Image::BitmapData bmd (stripImg, Image::BitmapData::writeOnly);
