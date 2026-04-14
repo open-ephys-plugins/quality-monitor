@@ -589,6 +589,7 @@ void QualityMonitor::doStartProcessing()
 
             m.processingDone      = false;
             m.rmsHistoryFrames    = 0;
+            m.spikeRateHistoryFrames = 0;
             m.analysisDurationSec = dur;
             m.rmsHistoryMaxFrames = maxFrames;
             m.rmsHistory.assign   (nCh * maxFrames, 0.0f);
