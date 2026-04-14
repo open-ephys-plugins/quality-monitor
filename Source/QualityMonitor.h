@@ -129,6 +129,13 @@ struct ProbeProcessingState
     int64_t totalSamplesProcessed = 0;
     bool    processingDone        = false;
 
+    // Pre-allocated scratch buffers — avoids heap allocation on the audio thread
+    std::vector<float>  scratchRms;        // size nCh
+    std::vector<float>  scratchLiveRates;  // size nCh
+    std::vector<float>  scratchLocalRates; // size nCh
+    std::vector<float>  scratchSpec;       // size nCh * FFT_BINS
+    std::vector<float>  scratchSurround;   // size 40 (±20 bin window)
+
     void allocate (int nCh, int windowSamples)
     {
         rmsWindowSamples   = windowSamples;
@@ -155,6 +162,12 @@ struct ProbeProcessingState
         totalSamplesAllowed   = 0;
         totalSamplesProcessed = 0;
         processingDone        = false;
+
+        scratchRms.resize        (nCh);
+        scratchLiveRates.resize  (nCh);
+        scratchLocalRates.resize (nCh);
+        scratchSpec.resize       (nCh * FFT_BINS);
+        scratchSurround.resize   (40);
     }
 };
 

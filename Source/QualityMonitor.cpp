@@ -158,28 +158,24 @@ void QualityMonitor::process (AudioBuffer<float>& buffer)
                 const int space = ps.rmsWindowSamples - ps.rmsSampleCount;
                 const int chunk = std::min (rmsRemain, space);
 
-                // RMS accumulation for this chunk
-                for (int c = 0; c < nCh; ++c)
-                {
-                    const float* src = buffer.getReadPointer (chIndices[c]) + rmsOffset;
-                    double sq = 0.0;
-                    for (int i = 0; i < chunk; ++i)
-                        sq += double (src[i]) * double (src[i]);
-                    ps.rmsSumSq[c] += sq;
-                }
-
-                // Spike detection for this chunk
+                // RMS accumulation + spike detection in a single pass per channel
                 for (int c = 0; c < nCh; ++c)
                 {
                     const float* src = buffer.getReadPointer (chIndices[c]) + rmsOffset;
                     const float thr = ps.spikeThreshV[c];
+                    bool belowPrev = ps.wasBelowThresh[c];
+                    double sq = 0.0;
                     for (int i = 0; i < chunk; ++i)
                     {
-                        const bool below = src[i] < -thr;
-                        if (below && ! ps.wasBelowThresh[c])
+                        const float val = src[i];
+                        sq += double (val) * double (val);
+                        const bool below = val < -thr;
+                        if (below && ! belowPrev)
                             ps.spikeCount[c]++;
-                        ps.wasBelowThresh[c] = below;
+                        belowPrev = below;
                     }
+                    ps.rmsSumSq[c] += sq;
+                    ps.wasBelowThresh[c] = belowPrev;
                 }
 
                 ps.rmsSampleCount   += chunk;
@@ -274,11 +270,10 @@ void QualityMonitor::finalizeRms (int pi)
     if (n == 0)
         return;
 
-    std::vector<float> localRms (nCh);
     for (int c = 0; c < nCh; ++c)
     {
         const float rms = float (std::sqrt (ps.rmsSumSq[c] / n));
-        localRms[c] = rms;
+        ps.scratchRms[c] = rms;
         ps.spikeThreshV[c] = std::max (rms * 5.0f, 1e-7f); // adaptive spike thr
         ps.rmsSumSq[c] = 0.0;
     }
@@ -286,7 +281,7 @@ void QualityMonitor::finalizeRms (int pi)
 
     std::lock_guard<std::mutex> lock (metricsMutex);
     auto& m = probeMetrics.getReference (pi);
-    m.rmsUV = localRms;
+    m.rmsUV = ps.scratchRms;
     m.numHighRmsChannels = 0;
     for (float v : m.rmsUV)
         if (v > m.rmsThresholdUV)
@@ -297,7 +292,7 @@ void QualityMonitor::finalizeRms (int pi)
     {
         const int frameOff = m.rmsHistoryFrames * nCh;
         for (int c = 0; c < nCh; ++c)
-            m.rmsHistory[frameOff + c] = localRms[c];
+            m.rmsHistory[frameOff + c] = ps.scratchRms[c];
         m.rmsHistoryFrames++;
     }
 
@@ -323,12 +318,11 @@ void QualityMonitor::finalizeFFT (int pi)
     const int nCh = (int) probeChannelIndices[pi].size();
     const int nWin = std::max (1, ps.fftWinCount);
 
-    // Average accumulated power and clear accumulators
-    std::vector<float> localSpec (nCh * FFT_BINS);
+    // Average accumulated power and clear accumulators (into pre-allocated scratch)
     for (int c = 0; c < nCh; ++c)
     {
         double* acc = ps.powerAccum.data() + c * FFT_BINS;
-        float* dest = localSpec.data() + c * FFT_BINS;
+        float* dest = ps.scratchSpec.data() + c * FFT_BINS;
         for (int k = 0; k < FFT_BINS; ++k)
         {
             dest[k] = float (acc[k] / nWin);
@@ -355,7 +349,7 @@ void QualityMonitor::finalizeFFT (int pi)
     int numNoisyCh = 0;
     for (int c = 0; c < nCh; ++c)
     {
-        const float* row = localSpec.data() + c * FFT_BINS;
+        const float* row = ps.scratchSpec.data() + c * FFT_BINS;
         bool noisy = false;
 
         for (float h : harmonics)
@@ -369,21 +363,20 @@ void QualityMonitor::finalizeFFT (int pi)
                 continue;
 
             // Local noise floor: median of ±20 bins, excluding ±3 around peak
-            std::vector<float> surround;
-            surround.reserve (34);
+            int surroundCount = 0;
             for (int kb = bin - 20; kb <= bin + 20; ++kb)
             {
                 if (kb < 0 || kb >= FFT_BINS)
                     continue;
                 if (std::abs (kb - bin) <= 3)
                     continue;
-                surround.push_back (row[kb]);
+                ps.scratchSurround[surroundCount++] = row[kb];
             }
-            if (surround.empty())
+            if (surroundCount == 0)
                 continue;
 
-            std::sort (surround.begin(), surround.end());
-            const float med = surround[surround.size() / 2];
+            std::sort (ps.scratchSurround.begin(), ps.scratchSurround.begin() + surroundCount);
+            const float med = ps.scratchSurround[surroundCount / 2];
             if (med < 1e-30f)
                 continue;
 
@@ -400,7 +393,7 @@ void QualityMonitor::finalizeFFT (int pi)
 
     std::lock_guard<std::mutex> lock (metricsMutex);
     auto& m = probeMetrics.getReference (pi);
-    m.powerSpectrum = localSpec;
+    m.powerSpectrum = ps.scratchSpec;
     m.numNoisyChannels = numNoisyCh;
     m.recomputeStatus();
 }
@@ -422,9 +415,8 @@ void QualityMonitor::finalizeSpikes (int pi)
 
     // Compute per-window live rate BEFORE accumulating into cumulative totals
     const float windowSec = std::max (float (ps.spikeSampleCount) / probeMetrics[pi].sampleRate, 0.001f);
-    std::vector<float> liveRates (nCh);
     for (int c = 0; c < nCh; ++c)
-        liveRates[c] = float (ps.spikeCount[c]) / windowSec;
+        ps.scratchLiveRates[c] = float (ps.spikeCount[c]) / windowSec;
 
     // Accumulate window counts into run totals, then reset the window
     for (int c = 0; c < nCh; ++c)
@@ -439,14 +431,13 @@ void QualityMonitor::finalizeSpikes (int pi)
     const float totalElapsedSec = std::max (
         float (ps.cumSpikeSamples) / probeMetrics[pi].sampleRate, 0.001f);
 
-    std::vector<float> localRates (nCh);
     for (int c = 0; c < nCh; ++c)
-        localRates[c] = float (ps.cumSpikeCount[c]) / totalElapsedSec;
+        ps.scratchLocalRates[c] = float (ps.cumSpikeCount[c]) / totalElapsedSec;
 
     std::lock_guard<std::mutex> lock (metricsMutex);
     auto& m = probeMetrics.getReference (pi);
-    m.spikeRateHz     = localRates;
-    m.spikeRateLiveHz = liveRates;
+    m.spikeRateHz     = ps.scratchLocalRates;
+    m.spikeRateLiveHz = ps.scratchLiveRates;
     m.numLowSpikeChannels = 0;
     for (float r : m.spikeRateHz)
         if (r < m.spikeRateFailHz)
@@ -461,16 +452,26 @@ void QualityMonitor::captureSnapshot (int pi, AudioBuffer<float>& buffer)
     const int numSamples = getNumSamplesInBlock (probeStreamIds[pi]);
     auto& ps = procState[pi];
     const int N = std::min (numSamples, SNAPSHOT_SAMPLES);
+    const int pos = ps.snapshotPos;
+    const int wrap = SNAPSHOT_SAMPLES - pos;
 
-    // Write into the ring buffer (audio-thread only — no lock needed)
-    for (int s = 0; s < N; ++s)
+    // Channel-major: at most two contiguous copies per channel to handle the ring wrap
+    for (int c = 0; c < nCh; ++c)
     {
-        const int dst = ps.snapshotPos;
-        for (int c = 0; c < nCh; ++c)
-            ps.snapshotRing[c * SNAPSHOT_SAMPLES + dst] =
-                buffer.getReadPointer (chIndices[c])[s];
-        ps.snapshotPos = (ps.snapshotPos + 1) % SNAPSHOT_SAMPLES;
+        const float* src  = buffer.getReadPointer (chIndices[c]);
+        float*       ring = ps.snapshotRing.data() + c * SNAPSHOT_SAMPLES;
+        if (N <= wrap)
+        {
+            std::copy (src, src + N, ring + pos);
+        }
+        else
+        {
+            std::copy (src,        src + wrap, ring + pos);
+            std::copy (src + wrap, src + N,    ring);
+        }
     }
+
+    ps.snapshotPos = (pos + N) % SNAPSHOT_SAMPLES;
 }
 
 void QualityMonitor::copyMetricsTo (Array<ProbeMetrics>& dest)
