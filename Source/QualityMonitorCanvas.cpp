@@ -1257,6 +1257,13 @@ void QualityMonitorCanvas::updateSettings()
     probeListBox->updateContent();
     if (selectedProbe < localMetrics.size())
         probeListBox->selectRow (selectedProbe, false, true);
+
+    content->rmsPanel->resetZoom();
+    content->specPanel->resetZoom();
+    content->snapPanel->resetZoom();
+    content->spikePanel->resetZoom();
+
+    layoutPanels();
     refresh();
 }
 
