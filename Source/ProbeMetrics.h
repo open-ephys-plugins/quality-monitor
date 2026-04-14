@@ -56,8 +56,12 @@ struct ProbeMetrics
     std::vector<float> dataSnapshot;       // [numChannels * SNAPSHOT_SAMPLES], µV
 
     // RMS time-series heatmap: one frame per RMS window (~200 ms), durationSec * 5 total frames
-    std::vector<float> rmsHistory;      // [rmsHistoryMaxFrames * numChannels]
-    int rmsHistoryFrames    = 0;        // frames accumulated so far
+    std::vector<float> rmsHistory;           // [rmsHistoryMaxFrames * numChannels]
+    int rmsHistoryFrames    = 0;             // frames accumulated so far
+
+    // Spike-rate time-series heatmap: live rate per RMS window, same cadence as rmsHistory
+    std::vector<float> spikeRateHistory;     // [rmsHistoryMaxFrames * numChannels], Hz
+    int spikeRateHistoryFrames = 0;
     int rmsWindowSamples     = 6000;    // 200 ms worth of samples at this stream's sample rate
     int rmsHistoryMaxFrames = 150;      // = durationSec * (sampleRate / rmsWindowSamples)
     int analysisDurationSec = 30;       // for X-axis labelling in the canvas
@@ -78,14 +82,16 @@ struct ProbeMetrics
         rmsWindowSamples    = std::max (1, int (sr * 0.2f)); // 200 ms at this stream's sample rate
         const int maxFrames = std::max (1, int (float (durationSec) * sr / float (rmsWindowSamples)));
         rmsHistoryMaxFrames = maxFrames;
-        rmsHistoryFrames    = 0;
-        processingDone      = false;
-        rmsUV.assign            (nCh, 0.0f);
-        spikeRateHz.assign      (nCh, 0.0f);
-        spikeRateLiveHz.assign  (nCh, 0.0f);
-        powerSpectrum.assign    (nCh * FFT_BINS, 0.0f);
-        dataSnapshot.assign     (nCh * SNAPSHOT_SAMPLES, 0.0f);
-        rmsHistory.assign       (nCh * maxFrames, 0.0f);
+        rmsHistoryFrames         = 0;
+        spikeRateHistoryFrames   = 0;
+        processingDone           = false;
+        rmsUV.assign                 (nCh, 0.0f);
+        spikeRateHz.assign           (nCh, 0.0f);
+        spikeRateLiveHz.assign       (nCh, 0.0f);
+        powerSpectrum.assign         (nCh * FFT_BINS, 0.0f);
+        dataSnapshot.assign          (nCh * SNAPSHOT_SAMPLES, 0.0f);
+        rmsHistory.assign            (nCh * maxFrames, 0.0f);
+        spikeRateHistory.assign      (nCh * maxFrames, 0.0f);
     }
 
     void recomputeStatus()

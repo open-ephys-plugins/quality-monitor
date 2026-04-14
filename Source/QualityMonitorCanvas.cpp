@@ -889,42 +889,39 @@ void DataSnapshotPanel::paint (Graphics& g)
 }
 
 // ─── SpikeRatePanel ───────────────────────────────────────────────────────────
-//   Y axis = channels, X axis = spike rate Hz (horizontal bars)
+//   Y axis = channels, X axis = time (one column per spike-rate window ~200 ms)
 
 void SpikeRatePanel::updateData (const ProbeMetrics& m)
 {
-    rateHz      = m.spikeRateHz;
-    rateLiveHz  = m.spikeRateLiveHz;
-    spikeFailHz = m.spikeRateFailHz;
-    spikeLowHz  = m.spikeRateLowHz;
-    numLowCh    = m.numLowSpikeChannels;
+    rateHz               = m.spikeRateHz;
+    spikeRateHistory     = m.spikeRateHistory;
+    historyFrames        = m.spikeRateHistoryFrames;
+    historyMaxFrames     = std::max (1, m.rmsHistoryMaxFrames);
+    durationSec          = std::max (1, m.analysisDurationSec);
+    processingDone       = m.processingDone;
+    spikeFailHz          = m.spikeRateFailHz;
+    spikeLowHz           = m.spikeRateLowHz;
+    numLowCh             = m.numLowSpikeChannels;
     initViewRange (m.numChannels);
-    maxRateHz      = rateHz.empty()     ? 30.0f : *std::max_element (rateHz.begin(),     rateHz.end());
-    maxRateHz      = std::max (maxRateHz, spikeLowHz * 2.0f);
-    maxLiveRateHz  = rateLiveHz.empty() ? maxRateHz : *std::max_element (rateLiveHz.begin(), rateLiveHz.end());
-    maxLiveRateHz  = std::max (maxLiveRateHz, spikeLowHz * 2.0f);
-
     repaint();
 }
 
-void SpikeRatePanel::drawLegend (Graphics& g, Rectangle<int> r)
+void SpikeRatePanel::drawColourBar (Graphics& g, Rectangle<float> r)
 {
-    struct { Colour col; const char* lbl; } e[] = {
-        { Colour (0xff42a5f5), "Normal (>=2 Hz)"  },
-        { Colour (0xffff9800), "Low (0.1-2 Hz)"   },
-        { Colour (0xfff44336), "Fail (<0.1 Hz)"   }
-    };
-    const float legendFs = 12.0f;
-    int y = r.getY() + 4;
-    for (auto& v : e)
+    for (int y = 0; y < int (r.getHeight()); ++y)
     {
-        g.setColour (v.col);
-        g.fillRect (r.getX(), y, 12, 12);
-        g.setColour (findColour (ThemeColours::defaultText));
-        g.setFont (interRegular (legendFs));
-        g.drawText (v.lbl, r.getX() + 15, y, r.getWidth() - 15, 12, Justification::centredLeft);
-        y += 15;
+        float t = 1.0f - float (y) / r.getHeight();
+        g.setColour (ColourMaps::inferno (t));
+        g.fillRect (r.getX(), r.getY() + float (y), r.getWidth(), 1.0f);
     }
+    g.setFont (interRegular (10.0f));
+    g.setColour (findColour (ThemeColours::defaultText).withAlpha (0.85f));
+    g.drawText ("100Hz",
+                int (r.getCentreX()) - 20, int (r.getY()) - 12,
+                40, 12, Justification::centred);
+    g.drawText ("0Hz",
+                int (r.getCentreX()) - 20, int (r.getBottom()) + 1,
+                40, 12, Justification::centred);
 }
 
 void SpikeRatePanel::paint (Graphics& g)
@@ -936,7 +933,6 @@ void SpikeRatePanel::paint (Graphics& g)
     g.setColour (findColour (ThemeColours::outline));
     g.drawRect (b, 1);
 
-    // Dynamic font sizes
     const float titleSz = 16.0f;
     const float metaSz  = 14.0f;
     const float tickSz  =  11.0f;
@@ -959,75 +955,73 @@ void SpikeRatePanel::paint (Graphics& g)
                    String (numLowCh) + " ch below " + String (spikeFailHz, 1) + " Hz threshold");
 
     b.reduce (0, PLOT_PAD);
-    if (rateHz.empty())
+    if (spikeRateHistory.empty())
         return;
 
-    b.removeFromLeft (AXIS_L);
     b.removeFromBottom (AXIS_B);
-    // Live per-channel strip on the right
+
+    // Colour bar on right
+    auto cbarBounds = b.removeFromRight (CBAR_W + 4).toFloat();
+    b.removeFromRight (PLOT_PAD);
+    // Average spike rate overview strip
     auto stripBounds = b.removeFromRight (STRIP_W);
     b.removeFromRight (PLOT_PAD);
+    b.removeFromLeft (AXIS_L);
     auto pb = b;
-    float px = float (pb.getX()), py = float (pb.getY());
-    float pw = float (pb.getWidth()), ph = float (pb.getHeight());
 
-    if (pw <= 0 || ph <= 0)
+    const int pw_i = pb.getWidth();
+    const int ph_i = pb.getHeight();
+    if (pw_i <= 0 || ph_i <= 0)
         return;
 
     lastPb = pb;
-    const int   viewCh_sr = viewChEnd - viewChStart;
-    const float vChF      = float (viewCh_sr > 0 ? viewCh_sr : 1);
+    const int viewCh_sr = viewChEnd - viewChStart;
+    if (viewCh_sr <= 0)
+        return;
 
-    // Paint background and border around plot area
-    g.setColour (findColour (ThemeColours::componentParentBackground));
-    g.fillRect (pb);
     g.setColour (findColour (ThemeColours::outline));
     g.drawRect (pb.expanded (1), 1);
 
-    // Vertical grid lines
-    g.setColour (textCol.withAlpha (0.05f));
-    for (int i = 1; i <= 4; ++i)
+    // --- Heatmap: live spike rate history (channels × time) ---
     {
-        float x = px + float (i) / 4.0f * pw;
-        g.drawVerticalLine (int (x), py, py + ph);
+        Image heatmap (Image::RGB, pw_i, ph_i, true, SoftwareImageType());
+        heatmap.clear (heatmap.getBounds(), findColour (ThemeColours::componentParentBackground));
+        if (historyFrames > 0)
+        {
+            Image::BitmapData bmd (heatmap, Image::BitmapData::writeOnly);
+            const int filledPx = std::min (pw_i,
+                int (int64_t (historyFrames) * int64_t (pw_i) / int64_t (historyMaxFrames)));
+            for (int y = 0; y < ph_i; ++y)
+            {
+                const int ch = jlimit (0, numCh - 1,
+                    viewChStart + y * viewCh_sr / ph_i);
+                for (int x = 0; x < filledPx; ++x)
+                {
+                    const int   frame = std::min (historyFrames - 1, std::max (0,
+                        int (int64_t (x) * int64_t (historyMaxFrames) / int64_t (pw_i))));
+                    const float hz = spikeRateHistory[frame * numCh + ch];
+                    const float t  = jlimit (0.0f, 1.0f, hz / 100.0f);
+                    bmd.setPixelColour (x, y, ColourMaps::inferno (t));
+                }
+            }
+        }
+        g.drawImageAt (heatmap, pb.getX(), pb.getY());
     }
 
-    // Horizontal bars per channel (only visible range)
-    for (int c = viewChStart; c < viewChEnd; ++c)
+    // --- Average spike rate overview strip (log scale, threshold colours) ---
     {
-        float rate = rateHz[c];
-        float barW = jlimit (0.0f, pw, (rate / 100.0f) * pw);
-        float y0   = py + float (c - viewChStart)     / vChF * ph;
-        float y1   = py + float (c + 1 - viewChStart) / vChF * ph;
-        g.setColour (rate < spikeFailHz ? Colour (0xfff44336)
-                   : rate < spikeLowHz  ? Colour (0xffff9800)
-                                        : Colour (0xff42a5f5));
-        g.fillRect (px, y0, barW, std::max (1.0f, y1 - y0));
-    }
-
-    // Threshold vertical line
-    float tx = px + jlimit (0.0f, 1.0f, spikeFailHz / 100.0f) * pw;
-    g.setColour (Colour (0xffc62828).withAlpha (0.75f));
-    g.drawVerticalLine (int (tx), py, py + ph);
-    g.setColour (Colour (0xffff5252));
-    g.setFont (interRegular (tickSz));
-    g.drawText (String (spikeFailHz, 1) + " Hz", int (tx) + 2, int (py) + 2, 40, 10, Justification::centredLeft);
-
-    // --- Live per-channel strip (spike rate, threshold colours) ---
-    {
-        const int sw   = stripBounds.getWidth();
-        const int sh   = int (ph);
-        const int sy   = int (py);
+        const int sw = stripBounds.getWidth();
+        const int sh = ph_i;
         Image stripImg (Image::RGB, sw, sh, true, SoftwareImageType());
         stripImg.clear (stripImg.getBounds(), findColour (ThemeColours::componentParentBackground));
-        if (! rateLiveHz.empty())
+        if (! rateHz.empty())
         {
             Image::BitmapData bmd (stripImg, Image::BitmapData::writeOnly);
             for (int y = 0; y < sh; ++y)
             {
                 const int   ch   = jlimit (0, numCh - 1,
                     viewChStart + y * viewCh_sr / sh);
-                const float rate = rateLiveHz[ch];
+                const float rate = rateHz[ch];
                 const float v    = jlimit (1e-6f, 100.0f, rate);
                 const float t    = jlimit (0.0f, 1.0f, std::log10 (v) / 2.0f);
                 const int   barW = jlimit (0, sw, int (t * float (sw)));
@@ -1038,29 +1032,39 @@ void SpikeRatePanel::paint (Graphics& g)
                     bmd.setPixelColour (x, y, col);
             }
         }
-        g.drawImageAt (stripImg, stripBounds.getX(), sy);
+        g.drawImageAt (stripImg, stripBounds.getX(), stripBounds.getY());
         g.setColour (findColour (ThemeColours::outline));
-        g.drawRect (Rectangle<int> (stripBounds.getX(), sy, sw, sh).expanded (1), 1);
+        g.drawRect (stripBounds.expanded (1), 1);
     }
 
-    // Legend top-right
-    drawLegend (g, b.removeFromBottom (50).removeFromRight (110));
+    // Progress line (white vertical bar at current frame)
+    if (! processingDone && historyFrames > 0 && historyMaxFrames > 0)
+    {
+        const float progX = float (pb.getX())
+                          + float (historyFrames) / float (historyMaxFrames)
+                          * float (pw_i);
+        g.setColour (Colours::white.withAlpha (0.6f));
+        g.drawVerticalLine (int (progX), float (pb.getY()), float (pb.getBottom()));
+    }
 
-    // Y axis: channel ticks
-    drawChannelYTicks (g, pb, viewChStart, viewChEnd, tickCol, tickSz);
-
-    // X axis ticks
+    // X axis: time ticks
     g.setColour (tickCol);
     g.setFont (interRegular (tickSz));
     for (int i = 0; i <= 4; ++i)
     {
-        float frac = float (i) / 4.0f;
-        float x    = px + frac * pw;
-        g.drawVerticalLine (int (x), py + ph, py + ph + 4.0f);
-        g.drawText (String (frac * 100.0f, 0, false), int (x) - 16, int (py + ph + 4), 34, 11, Justification::centred);
+        const float frac = float (i) / 4.0f;
+        const float x    = float (pb.getX()) + frac * float (pw_i);
+        const int   sec  = int (frac * float (durationSec));
+        g.drawVerticalLine (int (x) - int (std::floor (frac)), float (pb.getBottom()), float (pb.getBottom()) + 4.0f);
+        g.drawText (String (sec), int (x) - 14, pb.getBottom() + 4, 28, 12, Justification::centred);
     }
     g.setFont (interRegular (metaSz));
-    g.drawText ("Spike Rate (Hz)", int (px), int (py + ph + 16), int (pw), 12, Justification::centred);
+    g.drawText ("Time (s)", pb.getX(), pb.getBottom() + 16, pw_i, 12, Justification::centred);
+
+    // Y axis: channel ticks
+    drawChannelYTicks (g, pb, viewChStart, viewChEnd, tickCol, tickSz);
+
+    drawColourBar (g, cbarBounds);
 }
 
 // ─── ProbeListModel ──────────────────────────────────────────────────────────

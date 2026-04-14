@@ -155,14 +155,16 @@ public:
     void paint (Graphics& g) override;
 
 private:
-    std::vector<float> rateHz;
-    std::vector<float> rateLiveHz;
+    std::vector<float> rateHz;              // average rate per channel (overview strip)
+    std::vector<float> spikeRateHistory;    // [historyMaxFrames * numChannels], Hz (heatmap)
+    int historyFrames    = 0;
+    int historyMaxFrames = 150;
+    int durationSec      = 30;
+    bool processingDone  = false;
     float spikeFailHz = 0.1f;
-    float spikeLowHz = 2.0f;
+    float spikeLowHz  = 2.0f;
     int numLowCh = 0;
-    float maxRateHz     = 30.0f;
-    float maxLiveRateHz = 30.0f;
-    void drawLegend (Graphics& g, Rectangle<int> r);
+    void drawColourBar (Graphics& g, Rectangle<float> r);
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SpikeRatePanel)
 };

@@ -438,6 +438,16 @@ void QualityMonitor::finalizeSpikes (int pi)
     auto& m = probeMetrics.getReference (pi);
     m.spikeRateHz     = ps.scratchLocalRates;
     m.spikeRateLiveHz = ps.scratchLiveRates;
+
+    // Accumulate live rates into the spike-rate history heatmap
+    if (m.spikeRateHistoryFrames < m.rmsHistoryMaxFrames)
+    {
+        const int frame = m.spikeRateHistoryFrames;
+        for (int c = 0; c < nCh; ++c)
+            m.spikeRateHistory[frame * nCh + c] = ps.scratchLiveRates[c];
+        ++m.spikeRateHistoryFrames;
+    }
+
     m.numLowSpikeChannels = 0;
     for (float r : m.spikeRateHz)
         if (r < m.spikeRateFailHz)
