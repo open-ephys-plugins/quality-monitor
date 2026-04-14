@@ -138,9 +138,7 @@ public:
 
 private:
     std::vector<float> snapshot;
-    std::vector<float> channelMeanUV;
-    float minUV = -50.0f;
-    float maxUV = 50.0f;
+    std::vector<float> channelStdUV;
     bool  hasData = false;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (DataSnapshotPanel)

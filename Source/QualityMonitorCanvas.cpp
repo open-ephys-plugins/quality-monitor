@@ -282,7 +282,7 @@ void RmsHeatmapPanel::drawColourBar (Graphics& g, Rectangle<float> r)
     // Labels above and below the bar
     g.setFont (interRegular (10.0f));
     g.setColour (findColour (ThemeColours::defaultText).withAlpha (0.85f));
-    g.drawText (String (int (maxRms)) + "μV",
+    g.drawText (String (100) + "μV",
                 int (r.getCentreX()) - 20, int (r.getY()) - 12,
                 40, 12, Justification::centred);
     g.drawText (String (0) + "μV",
@@ -357,7 +357,7 @@ void RmsHeatmapPanel::paint (Graphics& g)
         Image::BitmapData bmd (heatmap, Image::BitmapData::writeOnly);
 
         // Only paint frames that have been accumulated
-        if (rmsHistoryFrames > 0 && maxRms > 0.0f)
+        if (rmsHistoryFrames > 0)
         {
             const int filledPx = std::min (pw_i,
                 int (int64_t (rmsHistoryFrames) * int64_t (pw_i) / int64_t (rmsHistoryMaxFrames)));
@@ -371,7 +371,7 @@ void RmsHeatmapPanel::paint (Graphics& g)
                     const int frame = std::min (rmsHistoryFrames - 1, std::max (0,
                         int (int64_t (x) * int64_t (rmsHistoryMaxFrames) / int64_t (pw_i))));
                     const float rms = rmsHistory[frame * numCh + ch];
-                    const float t   = std::min (1.0f, std::max (0.0f, rms / maxRms));
+                    const float t   = jlimit (0.0f, 1.0f, rms / 100.0f);
                     bmd.setPixelColour (x, y, ColourMaps::inferno (t));
                 }
             }
@@ -387,14 +387,15 @@ void RmsHeatmapPanel::paint (Graphics& g)
         const Colour bg = findColour (ThemeColours::componentParentBackground);
         Image stripImg (Image::RGB, sw, sh, true, SoftwareImageType());
         stripImg.clear (stripImg.getBounds(), bg);
-        if (! rmsUV.empty() && maxRms > 0.0f)
+        if (! rmsUV.empty())
         {
             Image::BitmapData bmd (stripImg, Image::BitmapData::writeOnly);
             for (int y = 0; y < sh; ++y)
             {
-                const int ch  = jlimit (0, numCh - 1,
+                const int   ch   = jlimit (0, numCh - 1,
                     viewChStart + y * viewCh_rms / sh);
-                const float t = jlimit (0.0f, 1.0f, rmsUV[ch] / maxRms);
+                const float v    = jlimit (1e-6f, 100.0f, rmsUV[ch]);
+                const float t    = jlimit (0.0f, 1.0f, std::log10 (v) / 2.0f);
                 const int   barW = jlimit (0, sw, int (t * float (sw)));
                 const Colour col = ColourMaps::inferno (t);
                 for (int x = 0; x < barW; ++x)
@@ -404,22 +405,6 @@ void RmsHeatmapPanel::paint (Graphics& g)
         g.drawImageAt (stripImg, stripBounds.getX(), stripBounds.getY());
         g.setColour (findColour (ThemeColours::outline));
         g.drawRect (stripBounds.expanded (1), 1);
-    }
-
-    // Threshold colour marker on the colour bar (horizontal line inside cbar)
-    {
-        const float tY = cbarBounds.getY()
-                       + (1.0f - jlimit (0.0f, 1.0f, threshUV / maxRms))
-                       * cbarBounds.getHeight();
-        g.setColour (Colours::yellow.withAlpha (0.6f));
-        g.drawHorizontalLine (int (tY),
-                              cbarBounds.getX() - 3.0f,
-                              cbarBounds.getRight());
-        g.setFont (interRegular (tickSz));
-        g.drawText (String (threshUV, 0),
-                    int (cbarBounds.getX()) - AXIS_L,
-                    int (tY) - 6, AXIS_L - 4, 12,
-                    Justification::centredRight);
     }
 
     // Progress line (white vertical bar at current frame)
@@ -462,29 +447,13 @@ void PowerSpectrumPanel::updateData (const ProbeMetrics& m)
     numNoisyCh  = m.numNoisyChannels;
     initViewRange (m.numChannels);
 
-    // Compute global dB range across all channels (skip DC bin 0)
-    float gMin_ = 1e20f, gMax_ = -1e20f;
-    for (int c = 0; c < numCh && ! spectrum.empty(); ++c)
-    {
-        const float* row = spectrum.data() + c * FFT_BINS;
-        for (int k = 1; k < FFT_BINS; ++k)
-        {
-            if (row[k] > 0.0f)
-            {
-                float db = 10.0f * std::log10 (row[k]);
-                gMin_ = std::min (gMin_, db);
-                gMax_ = std::max (gMax_, db);
-            }
-        }
-    }
-    gMinDb = (gMin_ < 1e19f) ? gMin_ : -120.0f;
-    gMaxDb = (gMax_ > -1e19f) ? gMax_ : 0.0f;
-    if (gMaxDb <= gMinDb)
-        gMaxDb = gMinDb + 1.0f;
-    hasData = (gMax_ > -1e19f);
+    // Fixed dB range 0–100 for cross-probe comparability
+    gMinDb  = 0.0f;
+    gMaxDb  = 100.0f;
+    hasData = ! spectrum.empty();
 
     // Compute mean dB per channel for the live strip
-    channelMeanDb.assign (numCh, gMinDb);
+    channelMeanDb.assign (numCh, 0.0f);
     for (int c = 0; c < numCh && ! spectrum.empty(); ++c)
     {
         const float* row = spectrum.data() + c * FFT_BINS;
@@ -619,14 +588,15 @@ void PowerSpectrumPanel::paint (Graphics& g)
         const int sh = ph_i;
         Image stripImg (Image::RGB, sw, sh, true, SoftwareImageType());
         stripImg.clear (stripImg.getBounds(), findColour (ThemeColours::componentParentBackground));
-        if (! channelMeanDb.empty() && dbRange > 0.0f)
+        if (! channelMeanDb.empty())
         {
             Image::BitmapData bmd (stripImg, Image::BitmapData::writeOnly);
             for (int y = 0; y < sh; ++y)
             {
-                const int   ch  = jlimit (0, numCh - 1,
+                const int   ch   = jlimit (0, numCh - 1,
                     viewChStart + y * viewCh_sp / sh);
-                const float t   = jlimit (0.0f, 1.0f, (channelMeanDb[ch] - gMinDb) / dbRange);
+                const float v    = jlimit (1e-6f, 100.0f, channelMeanDb[ch]);
+                const float t    = jlimit (0.0f, 1.0f, std::log10 (v) / 2.0f);
                 const int   barW = jlimit (0, sw, int (t * float (sw)));
                 const Colour col = ColourMaps::viridis (t);
                 for (int x = 0; x < barW; ++x)
@@ -681,29 +651,26 @@ void DataSnapshotPanel::updateData (const ProbeMetrics& m)
 {
     snapshot = m.dataSnapshot;
     initViewRange (m.numChannels);
-    if (! snapshot.empty())
-    {
-        std::vector<float> absV (snapshot.size());
-        std::transform (snapshot.begin(), snapshot.end(), absV.begin(), [] (float v) { return std::abs (v); });
-        std::sort (absV.begin(), absV.end());
-        maxUV = std::max (absV[size_t (0.95f * float (absV.size()))], 1.0f);
-        minUV = -maxUV;
-    }
 
-    // Compute mean |sample| per channel for the live strip
-    channelMeanUV.assign (numCh, 0.0f);
+    // Compute standard deviation per channel for the live strip
+    channelStdUV.assign (numCh, 0.0f);
     hasData = false;
     for (int c = 0; c < numCh && ! snapshot.empty(); ++c)
     {
         const float* row = snapshot.data() + c * SNAPSHOT_SAMPLES;
         float sum = 0.0f;
         for (int s = 0; s < SNAPSHOT_SAMPLES; ++s)
+            sum += row[s];
+
+        const float mean = sum / float (SNAPSHOT_SAMPLES);
+        float sumSq = 0.0f;
+        for (int s = 0; s < SNAPSHOT_SAMPLES; ++s)
         {
-            const float av = std::abs (row[s]);
-            sum += av;
-            if (av > 0.0f) hasData = true;
+            const float d = row[s] - mean;
+            sumSq += d * d;
+            if (row[s] != 0.0f) hasData = true;
         }
-        channelMeanUV[c] = sum / float (SNAPSHOT_SAMPLES);
+        channelStdUV[c] = std::sqrt (sumSq / float (SNAPSHOT_SAMPLES));
     }
 
     repaint();
@@ -764,7 +731,9 @@ void DataSnapshotPanel::paint (Graphics& g)
     g.setColour (findColour (ThemeColours::outline));
     g.drawRect (pb.expanded (1), 1);
 
-    const float range = maxUV - minUV;
+    constexpr float minUV = -100.0f;
+    constexpr float maxUV =  100.0f;
+    const float range = maxUV - minUV;  // 200.0f
 
     // --- Snapshot via BitmapData ---
     {
@@ -791,20 +760,20 @@ void DataSnapshotPanel::paint (Graphics& g)
         g.drawImageAt (snapshotImg, pb.getX(), pb.getY());
     }
 
-    // --- Live per-channel strip (peak |voltage|, Cividis, 0 → maxUV) ---
+    // --- Live per-channel strip (mean |voltage|, Cividis, 0 → 100 µV linear) ---
     {
         const int sw = stripBounds.getWidth();
         const int sh = ph_i;
         Image stripImg (Image::RGB, sw, sh, true, SoftwareImageType());
         stripImg.clear (stripImg.getBounds(), findColour (ThemeColours::componentParentBackground));
-        if (! channelMeanUV.empty() && maxUV > 0.0f)
+        if (! channelStdUV.empty())
         {
             Image::BitmapData bmd (stripImg, Image::BitmapData::writeOnly);
             for (int y = 0; y < sh; ++y)
             {
                 const int   ch   = jlimit (0, numCh - 1,
                     viewChStart + y * viewCh_sn / sh);
-                const float t    = jlimit (0.0f, 1.0f, channelMeanUV[ch] / maxUV);
+                const float t    = jlimit (0.0f, 1.0f, channelStdUV[ch] / 100.0f);
                 const int   barW = jlimit (0, sw, int (t * float (sw)));
                 const Colour col = ColourMaps::cividis (t);
                 for (int x = 0; x < barW; ++x)
@@ -824,10 +793,10 @@ void DataSnapshotPanel::paint (Graphics& g)
     }
     g.setFont (interRegular (10.0f));
     g.setColour (findColour (ThemeColours::defaultText).withAlpha (0.85f));
-    g.drawText ("+" + String (int (maxUV)) + "μV",
+    g.drawText (String("+100") + "μV",
                 int (cbar.getCentreX()) - 20, int (cbar.getY()) - 12,
                 40, 12, Justification::centred);
-    g.drawText ("-" + String (int (maxUV)) + "μV",
+    g.drawText (String("-100") + "μV",
                 int (cbar.getCentreX()) - 20, int (cbar.getBottom()) + 1,
                 40, 12, Justification::centred);
 
@@ -957,7 +926,7 @@ void SpikeRatePanel::paint (Graphics& g)
     for (int c = viewChStart; c < viewChEnd; ++c)
     {
         float rate = rateHz[c];
-        float barW = jlimit (0.0f, pw, (rate / maxRateHz) * pw);
+        float barW = jlimit (0.0f, pw, (rate / 100.0f) * pw);
         float y0   = py + float (c - viewChStart)     / vChF * ph;
         float y1   = py + float (c + 1 - viewChStart) / vChF * ph;
         g.setColour (rate < spikeFailHz ? Colour (0xfff44336)
@@ -967,7 +936,7 @@ void SpikeRatePanel::paint (Graphics& g)
     }
 
     // Threshold vertical line
-    float tx = px + jlimit (0.0f, 1.0f, spikeFailHz / maxRateHz) * pw;
+    float tx = px + jlimit (0.0f, 1.0f, spikeFailHz / 100.0f) * pw;
     g.setColour (Colour (0xffc62828).withAlpha (0.75f));
     g.drawVerticalLine (int (tx), py, py + ph);
     g.setColour (Colour (0xffff5252));
@@ -981,7 +950,7 @@ void SpikeRatePanel::paint (Graphics& g)
         const int sy   = int (py);
         Image stripImg (Image::RGB, sw, sh, true, SoftwareImageType());
         stripImg.clear (stripImg.getBounds(), findColour (ThemeColours::componentParentBackground));
-        if (! rateLiveHz.empty() && maxLiveRateHz > 0.0f)
+        if (! rateLiveHz.empty())
         {
             Image::BitmapData bmd (stripImg, Image::BitmapData::writeOnly);
             for (int y = 0; y < sh; ++y)
@@ -989,7 +958,8 @@ void SpikeRatePanel::paint (Graphics& g)
                 const int   ch   = jlimit (0, numCh - 1,
                     viewChStart + y * viewCh_sr / sh);
                 const float rate = rateLiveHz[ch];
-                const float t    = jlimit (0.0f, 1.0f, rate / maxLiveRateHz);
+                const float v    = jlimit (1e-6f, 100.0f, rate);
+                const float t    = jlimit (0.0f, 1.0f, std::log10 (v) / 2.0f);
                 const int   barW = jlimit (0, sw, int (t * float (sw)));
                 const Colour col = rate < spikeFailHz ? Colour (0xfff44336)
                                  : rate < spikeLowHz  ? Colour (0xffff9800)
@@ -1017,7 +987,7 @@ void SpikeRatePanel::paint (Graphics& g)
         float frac = float (i) / 4.0f;
         float x    = px + frac * pw;
         g.drawVerticalLine (int (x), py + ph, py + ph + 4.0f);
-        g.drawText (String (frac * maxRateHz, 1, false), int (x) - 16, int (py + ph + 4), 34, 11, Justification::centred);
+        g.drawText (String (frac * 100.0f, 0, false), int (x) - 16, int (py + ph + 4), 34, 11, Justification::centred);
     }
     g.setFont (interRegular (metaSz));
     g.drawText ("Spike Rate (Hz)", int (px), int (py + ph + 16), int (pw), 12, Justification::centred);
