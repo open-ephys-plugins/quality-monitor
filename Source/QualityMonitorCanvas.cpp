@@ -586,8 +586,23 @@ void PowerSpectrumPanel::paint (Graphics& g)
     if (viewCh_sp <= 0)
         return;
 
-    const float nyquist = sampleRate / 2.0f;
-    const float dbRange = gMaxDb - gMinDb;
+    const float nyquist    = sampleRate / 2.0f;
+    const float dbRange    = gMaxDb - gMinDb;
+    const float hzPerBin   = sampleRate / float (FFT_SIZE);
+    // Log-frequency axis: display from LOG_FREQ_MIN Hz up to Nyquist
+    static constexpr float LOG_FREQ_MIN = 10.0f;
+    const float logFMin = std::log10 (LOG_FREQ_MIN);
+    const float logFMax = std::log10 (nyquist);
+    // Helper: pixel x [0, pw_i) -> FFT bin index (log scale)
+    auto pixelToLogBin = [&] (int x) -> int {
+        const float fhz = std::pow (10.0f, logFMin + float (x) / float (pw_i) * (logFMax - logFMin));
+        return jlimit (1, FFT_BINS - 1, int (fhz / hzPerBin));
+    };
+    // Helper: frequency Hz -> pixel x offset relative to pb.getX() (log scale)
+    auto freqToLogPixelX = [&] (float hz) -> float {
+        if (hz <= 0.0f) return -1.0f;
+        return (std::log10 (hz) - logFMin) / (logFMax - logFMin) * float (pw_i);
+    };
 
     // Draw border around plot area
     g.setColour (findColour (ThemeColours::outline));
@@ -609,7 +624,7 @@ void PowerSpectrumPanel::paint (Graphics& g)
                 const float* row = spectrum.data() + c * FFT_BINS;
                 for (int x = 0; x < pw_i; ++x)
                 {
-                    const int   k  = jlimit (1, FFT_BINS - 1, 1 + x * (FFT_BINS - 2) / pw_i);
+                    const int   k  = pixelToLogBin (x);
                     const float db = row[k] > 0.0f ? 10.0f * std::log10 (row[k]) : gMinDb;
                     const float t  = jlimit (0.0f, 1.0f, (db - gMinDb) / dbRange);
                     bmd.setPixelColour (x, y, ColourMaps::viridis (t));
@@ -682,21 +697,25 @@ void PowerSpectrumPanel::paint (Graphics& g)
     const float harmonics[] = { powerlineHz, powerlineHz * 2.0f, 50.0f, 100.0f };
     for (float h : harmonics)
     {
-        if (h <= 0.0f || h > nyquist)
+        if (h <= 0.0f || h > nyquist || h < LOG_FREQ_MIN)
             continue;
-        float x = float (pb.getX()) + (h / nyquist) * float (pw_i);
-        g.setColour (Colour (0xffff9800).withAlpha (0.55f));
-        g.drawVerticalLine (int (x), float (pb.getY()), float (pb.getBottom()));
+        const float px = freqToLogPixelX (h);
+        if (px < 0.0f || px >= float (pw_i))
+            continue;
+        g.setColour (Colours::red.withAlpha (0.6f));
+        g.drawVerticalLine (int (float (pb.getX()) + px), float (pb.getY()), float (pb.getBottom()));
     }
 
-    // X axis: frequency ticks (skip values if too close together on screen)
+    // X axis: log-spaced frequency ticks
     g.setColour (tickCol);
     g.setFont (interRegular (tickSz));
     int lastLabelX = -100;
-    for (float ft : { 0.0f, 100.0f, 200.0f, 300.0f, 500.0f, 1000.0f, 2000.0f, 5000.0f, 10000.0f, 15000.0f })
+    for (float ft : { 10.0f, 20.0f, 50.0f, 100.0f, 200.0f, 500.0f, 1000.0f, 2000.0f, 5000.0f, 10000.0f, 20000.0f })
     {
-        if (ft > nyquist) break;
-        int x = int (float (pb.getX()) + (ft / nyquist) * float (pw_i));
+        if (ft < LOG_FREQ_MIN || ft > nyquist) continue;
+        const float px = freqToLogPixelX (ft);
+        if (px < 0.0f || px >= float (pw_i)) continue;
+        const int x = int (float (pb.getX()) + px);
         g.drawVerticalLine (x, float (pb.getBottom()), float (pb.getBottom()) + 4.0f);
         if (x - lastLabelX >= 28)
         {
