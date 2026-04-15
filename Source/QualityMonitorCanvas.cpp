@@ -930,7 +930,7 @@ void SpikeRatePanel::drawColourBar (Graphics& g, Rectangle<float> r)
     for (int y = 0; y < int (r.getHeight()); ++y)
     {
         float t = 1.0f - float (y) / r.getHeight();
-        g.setColour (ColourMaps::inferno (t));
+        g.setColour (ColourMaps::turbo (t));
         g.fillRect (r.getX(), r.getY() + float (y), r.getWidth(), 1.0f);
     }
     g.setFont (interRegular (10.0f));
@@ -1020,7 +1020,7 @@ void SpikeRatePanel::paint (Graphics& g)
                         int (int64_t (x) * int64_t (historyMaxFrames) / int64_t (pw_i))));
                     const float hz = spikeRateHistory[frame * numCh + ch];
                     const float t  = jlimit (0.0f, 1.0f, hz / 100.0f);
-                    bmd.setPixelColour (x, y, ColourMaps::inferno (t));
+                    bmd.setPixelColour (x, y, ColourMaps::turbo (t));
                 }
             }
         }
