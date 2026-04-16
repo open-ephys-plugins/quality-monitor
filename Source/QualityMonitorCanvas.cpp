@@ -572,9 +572,10 @@ void PowerSpectrumPanel::paint (Graphics& g)
                 const float* row = spectrum.data() + c * FFT_BINS;
                 for (int x = 0; x < pw_i; ++x)
                 {
-                    const int   k  = pixelToLogBin (x);
-                    const float db = row[k] > 0.0f ? 10.0f * std::log10 (row[k]) : gMinDb;
-                    const float t  = jlimit (0.0f, 1.0f, (db - gMinDb) / dbRange);
+                    const int   k    = pixelToLogBin (x);
+                    const float db   = row[k] > 0.0f ? 10.0f * std::log10 (row[k]) : gMinDb;
+                    const float tLin = jlimit (0.0f, 1.0f, (db - gMinDb) / dbRange);
+                    const float t    = std::log10 (1.0f + 9.0f * tLin); // log colour scale
                     bmd.setPixelColour (x, y, ColourMaps::viridis (t));
                 }
             }
