@@ -115,8 +115,8 @@ public:
 
 private:
     std::vector<float> spectrum;
-    std::vector<float> channelPowerlineDb;  // per-channel power in powerline noise band (dB)
-    std::vector<float> channelHFNoiseDb;    // per-channel power in 10–15 kHz band (dB)
+    std::vector<float> channelPowerlineDb;  // per-channel powerline band power (dB), copied from ProbeMetrics
+    std::vector<float> channelHFNoiseDb;    // per-channel 8–15 kHz mean power (dB), copied from ProbeMetrics
     float sampleRate = 30000.0f;
     float powerlineHz = 60.0f;
     int numNoisyCh = 0;

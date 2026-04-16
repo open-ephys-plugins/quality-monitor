@@ -74,6 +74,10 @@ struct ProbeMetrics
     int numLowSpikeChannels  = 0;
     int numNoisyChannels     = 0;
 
+    // Per-channel band power strips (computed by processor, copied to canvas)
+    std::vector<float> channelPowerlineDb;  // [numChannels] mean power ±3 bins around powerline fundamental (dB)
+    std::vector<float> channelHFNoiseDb;    // [numChannels] mean power in 8–15 kHz band (dB)
+
     void allocate (int nCh, float sr, int durationSec = 30)
     {
         numChannels         = nCh;
@@ -92,6 +96,8 @@ struct ProbeMetrics
         dataSnapshot.assign          (nCh * SNAPSHOT_SAMPLES, 0.0f);
         rmsHistory.assign            (nCh * maxFrames, 0.0f);
         spikeRateHistory.assign      (nCh * maxFrames, 0.0f);
+        channelPowerlineDb.assign    (nCh, 0.0f);
+        channelHFNoiseDb.assign      (nCh, 0.0f);
     }
 
     void recomputeStatus()

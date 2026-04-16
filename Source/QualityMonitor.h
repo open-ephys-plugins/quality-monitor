@@ -135,6 +135,8 @@ struct ProbeProcessingState
     std::vector<float>  scratchLocalRates; // size nCh
     std::vector<float>  scratchSpec;       // size nCh * FFT_BINS
     std::vector<float>  scratchSurround;   // size 40 (±20 bin window)
+    std::vector<float>  scratchPlDb;       // size nCh — per-channel powerline band power (dB)
+    std::vector<float>  scratchHFDb;       // size nCh — per-channel 8–15 kHz mean power (dB)
 
     void allocate (int nCh, int windowSamples)
     {
@@ -168,6 +170,8 @@ struct ProbeProcessingState
         scratchLocalRates.resize (nCh);
         scratchSpec.resize       (nCh * FFT_BINS);
         scratchSurround.resize   (40);
+        scratchPlDb.resize       (nCh);
+        scratchHFDb.resize       (nCh);
     }
 };
 

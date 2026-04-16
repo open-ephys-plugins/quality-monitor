@@ -441,70 +441,18 @@ void RmsHeatmapPanel::paint (Graphics& g)
 
 void PowerSpectrumPanel::updateData (const ProbeMetrics& m)
 {
-    spectrum    = m.powerSpectrum;
-    sampleRate  = m.sampleRate;
-    powerlineHz = m.powerlineHz;
-    numNoisyCh  = m.numNoisyChannels;
+    spectrum           = m.powerSpectrum;
+    sampleRate         = m.sampleRate;
+    powerlineHz        = m.powerlineHz;
+    numNoisyCh         = m.numNoisyChannels;
+    channelPowerlineDb = m.channelPowerlineDb;
+    channelHFNoiseDb   = m.channelHFNoiseDb;
     initViewRange (m.numChannels);
 
     // Fixed dB range 0–100 for cross-probe comparability
     gMinDb  = 0.0f;
     gMaxDb  = 100.0f;
     hasData = ! spectrum.empty();
-
-    // Compute per-channel band power for the two overview strips
-    {
-        const float hzPerBin  = sampleRate / float (FFT_SIZE);
-        auto hzToBin = [&] (float hz) -> int
-        {
-            return jlimit (0, FFT_BINS - 1, int (hz / hzPerBin));
-        };
-
-        const int kHFStart = hzToBin (10000.0f);
-        const int kHFEnd   = std::min (FFT_BINS - 1, hzToBin (15000.0f));
-
-        channelPowerlineDb.assign (numCh, 0.0f);
-        channelHFNoiseDb.assign   (numCh, 0.0f);
-
-        for (int c = 0; c < numCh && ! spectrum.empty(); ++c)
-        {
-            const float* row = spectrum.data() + c * FFT_BINS;
-
-            // Powerline band: ±3 bins around fundamental + first harmonic
-            float plSum = 0.0f;
-            int   plCnt = 0;
-            for (float h : { powerlineHz, powerlineHz * 2.0f })
-            {
-                if (h <= 0.0f || h >= sampleRate / 2.0f)
-                    continue;
-                const int bin = hzToBin (h);
-                for (int k = bin - 3; k <= bin + 3; ++k)
-                {
-                    if (k >= 1 && k < FFT_BINS && row[k] > 0.0f)
-                    {
-                        plSum += row[k];
-                        ++plCnt;
-                    }
-                }
-            }
-            if (plCnt > 0 && plSum > 0.0f)
-                channelPowerlineDb[c] = 10.0f * std::log10 (plSum / float (plCnt));
-
-            // High-frequency noise band: 10 kHz – 15 kHz
-            float hfSum = 0.0f;
-            int   hfCnt = 0;
-            for (int k = kHFStart; k <= kHFEnd; ++k)
-            {
-                if (row[k] > 0.0f)
-                {
-                    hfSum += row[k];
-                    ++hfCnt;
-                }
-            }
-            if (hfCnt > 0 && hfSum > 0.0f)
-                channelHFNoiseDb[c] = 10.0f * std::log10 (hfSum / float (hfCnt));
-        }
-    }
 
     repaint();
 }
@@ -693,8 +641,8 @@ void PowerSpectrumPanel::paint (Graphics& g)
     g.drawText ("PL",  plStripBounds.getX(), pb.getBottom() + 4, plStripBounds.getWidth(), 11, Justification::centred);
     g.drawText ("HF", hfStripBounds.getX(), pb.getBottom() + 4, hfStripBounds.getWidth(), 11, Justification::centred);
 
-    // Powerline harmonic markers: coloured lines only, no text labels (avoid clutter)
-    const float harmonics[] = { powerlineHz, powerlineHz * 2.0f, 50.0f, 100.0f };
+    // Powerline harmonic marker
+    const float harmonics[] = { powerlineHz };
     for (float h : harmonics)
     {
         if (h <= 0.0f || h > nyquist || h < LOG_FREQ_MIN)
@@ -1307,9 +1255,7 @@ void QualityMonitorCanvas::endAnimation()
         statusIndicator->setColour (Label::textColourId, Colours::orange);
     }
 
-    captureBtn->setEnabled (false);
-    saveBtn->setEnabled (true);
-    durationCombo->setEnabled (true);
+    updateButtonStates();
 }
 
 void QualityMonitorCanvas::refresh()
@@ -1383,16 +1329,7 @@ void QualityMonitorCanvas::layoutPanels()
 
 void QualityMonitorCanvas::updateButtonStates()
 {    
-    // "processing ongoing" = analysis has started but at least one probe is not done yet
-    const bool active = processor->isProcessingActive();
-    bool allDone = ! active;
-    if (active)
-    {
-        allDone = true;
-        for (int i = 0; i < localMetrics.size(); ++i)
-            if (! localMetrics[i].processingDone) { allDone = false; break; }
-    }
-    const bool processingOngoing = active && ! allDone;
+    const bool processingOngoing = processor->isProcessingActive() && acquisitionActive;
 
     // Capture/Stop: when processing is ongoing the button becomes a Stop button
     if (processingOngoing)

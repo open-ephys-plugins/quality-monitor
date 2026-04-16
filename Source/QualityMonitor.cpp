@@ -331,70 +331,100 @@ void QualityMonitor::finalizeFFT (int pi)
     }
     ps.fftWinCount = 0;
 
-    // -- Noisy channel detection --
-    // Snapshot these under no-lock (written only in updateSettings on message thread)
-    const float sr = probeMetrics[pi].sampleRate;
-    const float plHz = probeMetrics[pi].powerlineHz;
+    // Snapshot read-only fields before entering the lock
+    const float sr     = probeMetrics[pi].sampleRate;
+    const float plHz   = probeMetrics[pi].powerlineHz;
     const float snrThr = probeMetrics[pi].powerlineSNRThresh;
 
+    const float nyquist  = sr / 2.0f;
     const float hzPerBin = sr / float (FFT_SIZE);
     auto hzToBin = [&] (float hz) -> int
     {
         return jlimit (0, FFT_BINS - 1, int (hz / hzPerBin));
     };
 
-    // Check primary powerline and harmonics up to Nyquist
-    const float harmonics[] = { plHz, plHz * 2.0f, plHz * 3.0f, 50.0f, 100.0f, 150.0f };
+    // Band limits (computed once, reused per channel)
+    const int plBin     = hzToBin (plHz);
+    const int kRefStart = hzToBin (500.0f);
+    const int kRefEnd   = std::min (FFT_BINS - 1, hzToBin (5000.0f));
+    const int kHFStart  = hzToBin (8000.0f);
+    const int kHFEnd    = std::min (FFT_BINS - 1, hzToBin (15000.0f));
 
     int numNoisyCh = 0;
     for (int c = 0; c < nCh; ++c)
     {
         const float* row = ps.scratchSpec.data() + c * FFT_BINS;
+
+        // --- Per-channel powerline band power: mean of ±3 bins around fundamental ---
+        {
+            float plSum = 0.0f;
+            int   plCnt = 0;
+            for (int k = plBin - 3; k <= plBin + 3; ++k)
+            {
+                if (k >= 1 && k < FFT_BINS && row[k] > 0.0f)
+                    { plSum += row[k]; ++plCnt; }
+            }
+            ps.scratchPlDb[c] = (plCnt > 0 && plSum > 0.0f)
+                ? 10.0f * std::log10 (plSum / float (plCnt)) : 0.0f;
+        }
+
+        // --- Per-channel HF band power: mean over 8–15 kHz ---
+        float hfSum = 0.0f;
+        int   hfCnt = 0;
+        for (int k = kHFStart; k <= kHFEnd; ++k)
+            if (row[k] > 0.0f) { hfSum += row[k]; ++hfCnt; }
+        ps.scratchHFDb[c] = (hfCnt > 0 && hfSum > 0.0f)
+            ? 10.0f * std::log10 (hfSum / float (hfCnt)) : 0.0f;
+
+        // --- Noisy channel detection ---
         bool noisy = false;
 
-        for (float h : harmonics)
+        // 1. Powerline SNR: peak bin vs. median of ±20 bins (excluding ±3 around peak)
+        if (plHz > 0.0f && plHz < nyquist && plBin > 0 && plBin < FFT_BINS - 1)
         {
-            const float nyquist = sr / 2.0f;
-            if (h <= 0.0f || h >= nyquist)
-                continue;
-
-            const int bin = hzToBin (h);
-            if (bin <= 0 || bin >= FFT_BINS - 1)
-                continue;
-
-            // Local noise floor: median of ±20 bins, excluding ±3 around peak
             int surroundCount = 0;
-            for (int kb = bin - 20; kb <= bin + 20; ++kb)
+            for (int kb = plBin - 20; kb <= plBin + 20; ++kb)
             {
-                if (kb < 0 || kb >= FFT_BINS)
-                    continue;
-                if (std::abs (kb - bin) <= 3)
-                    continue;
+                if (kb < 0 || kb >= FFT_BINS) continue;
+                if (std::abs (kb - plBin) <= 3) continue;
                 ps.scratchSurround[surroundCount++] = row[kb];
             }
-            if (surroundCount == 0)
-                continue;
-
-            std::sort (ps.scratchSurround.begin(), ps.scratchSurround.begin() + surroundCount);
-            const float med = ps.scratchSurround[surroundCount / 2];
-            if (med < 1e-30f)
-                continue;
-
-            const float snrDb = 10.0f * std::log10 (row[bin] / med);
-            if (snrDb > snrThr)
+            if (surroundCount > 0)
             {
-                noisy = true;
-                break;
+                std::sort (ps.scratchSurround.begin(), ps.scratchSurround.begin() + surroundCount);
+                const float med = ps.scratchSurround[surroundCount / 2];
+                if (med >= 1e-30f)
+                {
+                    const float snrDb = 10.0f * std::log10 (row[plBin] / med);
+                    if (snrDb > snrThr) noisy = true;
+                }
             }
         }
-        if (noisy)
-            numNoisyCh++;
+
+        // 2. HF noise: mean power in 8–15 kHz elevated vs. reference band (500 Hz – 5 kHz)
+        if (! noisy && kHFEnd > kHFStart && kRefEnd > kRefStart && hfCnt > 0)
+        {
+            float refSum = 0.0f;
+            int   refCnt = 0;
+            for (int k = kRefStart; k <= kRefEnd; ++k)
+                if (row[k] > 0.0f) { refSum += row[k]; ++refCnt; }
+            if (refCnt > 0 && refSum > 1e-30f)
+            {
+                const float snrDb = 10.0f * std::log10 ((hfSum / float (hfCnt))
+                                                       / (refSum / float (refCnt)));
+                if (snrDb > snrThr) noisy = true;
+            }
+        }
+
+        if (noisy) ++numNoisyCh;
     }
 
     std::lock_guard<std::mutex> lock (metricsMutex);
     auto& m = probeMetrics.getReference (pi);
-    m.powerSpectrum = ps.scratchSpec;
-    m.numNoisyChannels = numNoisyCh;
+    m.powerSpectrum      = ps.scratchSpec;
+    m.channelPowerlineDb = ps.scratchPlDb;
+    m.channelHFNoiseDb   = ps.scratchHFDb;
+    m.numNoisyChannels   = numNoisyCh;
     m.recomputeStatus();
 }
 
