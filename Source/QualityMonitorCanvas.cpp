@@ -72,7 +72,7 @@ static void drawBadge (Graphics& g, Rectangle<int> r, Colour bg, const String& t
     g.setColour (bg);
     g.fillRoundedRectangle (r.toFloat(), 4.0f);
     g.setColour (Colours::white);
-    g.setFont (Font (FontOptions ("Inter", "Semi Bold", 10.0f)));
+    g.setFont (Font (FontOptions ("Inter", "Semi Bold", 11.0f)));
     g.drawText (text, r, Justification::centred, false);
 }
 
@@ -313,15 +313,12 @@ void RmsHeatmapPanel::paint (Graphics& g)
     g.setFont (interSemiBold (titleSz));
     g.drawText ("RMS Heatmap", titleRow, Justification::centredLeft);
 
-    // Meta row: threshold label + alert badge
+    // Meta row: threshold label
     auto metaRow = b.removeFromTop (META_H);
     g.setColour (tickCol);
     g.setFont (interRegular (metaSz));
     auto threshLabel = metaRow.removeFromLeft (160);
     g.drawText ("THRESHOLD  " + String (threshUV, 0) + " μV", threshLabel, Justification::centredLeft);
-    if (numHighRms > 0)
-        drawBadge (g, metaRow.reduced (2, 2), Colour (0xffc62828),
-                   String (numHighRms) + " ch above " + String (threshUV, 0) + " μV threshold");
 
     b.reduce (0, PLOT_PAD);
     if (rmsHistory.empty() || numCh == 0)
@@ -337,6 +334,11 @@ void RmsHeatmapPanel::paint (Graphics& g)
     b.removeFromRight (PLOT_PAD);
     b.removeFromLeft (AXIS_L);
     auto pb = b;
+
+    // Meta row: alert badge
+    if (numHighRms > 0)
+        drawBadge (g, metaRow.reduced (2, 2).withRight( pb.getRight()), Colour (0xffc62828),
+                   String (numHighRms) + " ch above " + String (threshUV, 0) + " μV threshold");
 
     const int pw_i = pb.getWidth();
     const int ph_i = pb.getHeight();
@@ -504,8 +506,6 @@ void PowerSpectrumPanel::paint (Graphics& g)
     g.setFont (interRegular (metaSz));
     auto plLabel = metaRow.removeFromLeft (210);
     g.drawText ("POWERLINE NOISE  " + String (powerlineHz, 0) + " Hz", plLabel, Justification::centredLeft);
-    if (numNoisyCh > 0)
-        drawBadge (g, metaRow.reduced (2, 2), Colour (0xffe65100), String (numNoisyCh) + " ch noisy");
 
     b.reduce (0, PLOT_PAD);
     if (spectrum.empty())
@@ -524,6 +524,10 @@ void PowerSpectrumPanel::paint (Graphics& g)
     b.removeFromLeft (AXIS_L);
     b.removeFromRight (PLOT_PAD);
     auto pb = b;
+
+    // Meta row: alert badge
+    if (numNoisyCh > 0)
+        drawBadge (g, metaRow.reduced (2, 2).withRight( pb.getRight()), Colour (0xffe65100), String (numNoisyCh) + " ch noisy");
 
     const int pw_i = pb.getWidth();
     const int ph_i = pb.getHeight();
@@ -919,9 +923,6 @@ void SpikeRatePanel::paint (Graphics& g)
     g.setFont (interRegular (metaSz));
     auto spikeLabel = metaRow.removeFromLeft (190);
     g.drawText ("SPIKE THRESH  " + String (spikeFailHz, 1) + " Hz", spikeLabel, Justification::centredLeft);
-    if (numLowCh > 0)
-        drawBadge (g, metaRow.reduced (2, 2), Colour (0xffc62828),
-                   String (numLowCh) + " ch below " + String (spikeFailHz, 1) + " Hz threshold");
 
     b.reduce (0, PLOT_PAD);
     if (spikeRateHistory.empty())
@@ -937,6 +938,10 @@ void SpikeRatePanel::paint (Graphics& g)
     b.removeFromRight (PLOT_PAD);
     b.removeFromLeft (AXIS_L);
     auto pb = b;
+
+    if (numLowCh > 0)
+        drawBadge (g, metaRow.reduced (2, 2).withRight( pb.getRight()), Colour (0xffc62828),
+                   String (numLowCh) + " ch below " + String (spikeFailHz, 1) + " Hz threshold");
 
     const int pw_i = pb.getWidth();
     const int ph_i = pb.getHeight();
