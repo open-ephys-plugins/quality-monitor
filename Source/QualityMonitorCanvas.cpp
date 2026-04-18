@@ -76,9 +76,10 @@ static void drawBadge (Graphics& g, Rectangle<int> r, Colour bg, const String& t
     g.drawText (text, r, Justification::centred, false);
 }
 
-// Font helpers — Inter typeface, sized dynamically by each caller
+// Font helpers — typefaces sized dynamically by each caller
 static Font interRegular  (float size) { return Font (FontOptions ("Inter", "Regular",   size)); }
 static Font interSemiBold (float size) { return Font (FontOptions ("Inter", "Semi Bold", size)); }
+static Font firaCodeRegular (float size) { return Font (FontOptions ("Fira Code", "Regular", size)); }
 
 // Draws Y-axis channel ticks for the visible channel range [viewChStart, viewChEnd).
 // Automatically picks evenly-spaced channel indices within the view range.
@@ -122,7 +123,7 @@ static void drawChannelYTicks (Graphics& g, Rectangle<int> pb,
     }
 
     g.setColour (tickCol);
-    g.setFont (interRegular (fontSize));
+    g.setFont (firaCodeRegular (fontSize));
 
     for (int t : ticks)
     {
@@ -280,13 +281,13 @@ void RmsHeatmapPanel::drawColourBar (Graphics& g, Rectangle<float> r)
         g.fillRect (r.getX(), r.getY() + float (y), r.getWidth(), 1.0f);
     }
     // Labels above and below the bar
-    g.setFont (interRegular (10.0f));
+    g.setFont (firaCodeRegular (11.0f));
     g.setColour (findColour (ThemeColours::defaultText).withAlpha (0.85f));
     g.drawText (String (100) + "μV",
-                int (r.getCentreX()) - 20, int (r.getY()) - 12,
+                int (r.getCentreX()) - 20, int (r.getY()) - 14,
                 40, 12, Justification::centred);
     g.drawText (String (0) + "μV",
-                int (r.getCentreX()) - 20, int (r.getBottom()) + 1,
+                int (r.getCentreX()) - 20, int (r.getBottom()) + 3,
                 40, 12, Justification::centred);
 }
 
@@ -419,7 +420,7 @@ void RmsHeatmapPanel::paint (Graphics& g)
 
     // X axis: time ticks (labels in seconds regardless of frame count)
     g.setColour (tickCol);
-    g.setFont (interRegular (tickSz));
+    g.setFont (firaCodeRegular (tickSz));
     for (int i = 0; i <= 4; ++i)
     {
         const float frac = float (i) / 4.0f;
@@ -428,7 +429,7 @@ void RmsHeatmapPanel::paint (Graphics& g)
         g.drawVerticalLine (int (x) - std::floor (frac), float (pb.getBottom()), float (pb.getBottom()) + 4.0f);
         g.drawText (String (sec), int (x) - 14, pb.getBottom() + 4, 28, 12, Justification::centred);
     }
-    g.setFont (interRegular (metaSz));
+    g.setFont (firaCodeRegular (metaSz));
     g.drawText ("Time (s)", pb.getX(), pb.getBottom() + 16, pw_i, 12, Justification::centred);
 
     // Y axis: channel ticks
@@ -466,13 +467,13 @@ void PowerSpectrumPanel::drawColourBar (Graphics& g, Rectangle<float> r)
         g.fillRect (r.getX(), r.getY() + float (y), r.getWidth(), 1.0f);
     }
     // Labels above and below the bar
-    g.setFont (interRegular (10.0f));
+    g.setFont (firaCodeRegular (11.0f));
     g.setColour (findColour (ThemeColours::defaultText).withAlpha (0.85f));
     g.drawText (String (int (gMaxDb)) + "dB",
-                int (r.getCentreX()) - 20, int (r.getY()) - 12,
+                int (r.getCentreX()) - 20, int (r.getY()) - 14,
                 40, 12, Justification::centred);
     g.drawText (String (int (gMinDb)) + "dB",
-                int (r.getCentreX()) - 20, int (r.getBottom()) + 1,
+                int (r.getCentreX()) - 20, int (r.getBottom()) + 3,
                 40, 12, Justification::centred);
 }
 
@@ -638,9 +639,9 @@ void PowerSpectrumPanel::paint (Graphics& g)
 
     // Strip labels below each overview column
     g.setColour (tickCol);
-    g.setFont (interRegular (tickSz));
-    g.drawText ("PL",  plStripBounds.getX(), pb.getBottom() + 4, plStripBounds.getWidth(), 11, Justification::centred);
-    g.drawText ("HF", hfStripBounds.getX(), pb.getBottom() + 4, hfStripBounds.getWidth(), 11, Justification::centred);
+    g.setFont (firaCodeRegular (tickSz));
+    g.drawText (String (int (powerlineHz)) + " Hz",  plStripBounds.getX(), pb.getBottom() + 4, plStripBounds.getWidth(), 11, Justification::centred);
+    g.drawText ("8-15 kHz", hfStripBounds.getX(), pb.getBottom() + 4, hfStripBounds.getWidth(), 11, Justification::centred);
 
     // Powerline harmonic marker
     const float harmonics[] = { powerlineHz };
@@ -673,7 +674,7 @@ void PowerSpectrumPanel::paint (Graphics& g)
             lastLabelX = x;
         }
     }
-    g.setFont (interRegular (metaSz));
+    g.setFont (firaCodeRegular (metaSz));
     g.drawText ("Frequency (Hz)", pb.getX(), pb.getBottom() + 16, pw_i, 12, Justification::centred);
 
     // Y axis: channel ticks
@@ -829,13 +830,13 @@ void DataSnapshotPanel::paint (Graphics& g)
         g.setColour (ColourMaps::cividis (1.0f - float (y) / cbar.getHeight()));
         g.fillRect (cbar.getX(), cbar.getY() + float (y), cbar.getWidth(), 1.0f);
     }
-    g.setFont (interRegular (10.0f));
+    g.setFont (firaCodeRegular (11.0f));
     g.setColour (findColour (ThemeColours::defaultText).withAlpha (0.85f));
     g.drawText (String("+100") + "μV",
-                int (cbar.getCentreX()) - 20, int (cbar.getY()) - 12,
+                int (cbar.getCentreX()) - 20, int (cbar.getY()) - 14,
                 40, 12, Justification::centred);
     g.drawText (String("-100") + "μV",
-                int (cbar.getCentreX()) - 20, int (cbar.getBottom()) + 1,
+                int (cbar.getCentreX()) - 20, int (cbar.getBottom()) + 3,
                 40, 12, Justification::centred);
 
     // Y axis: channel ticks
@@ -843,7 +844,7 @@ void DataSnapshotPanel::paint (Graphics& g)
 
     // X axis: time sample ticks
     g.setColour (tickCol);
-    g.setFont (interRegular (tickSz));
+    g.setFont (firaCodeRegular (tickSz));
     for (int i = 0; i <= 4; ++i)
     {
         float frac = float (i) / 4.0f;
@@ -852,7 +853,7 @@ void DataSnapshotPanel::paint (Graphics& g)
         g.drawVerticalLine (int (x), float (pb.getBottom()), float (pb.getBottom()) + 4.0f);
         g.drawText (String (samp), int (x) - 14, pb.getBottom() + 4, 28, 11, Justification::centred);
     }
-    g.setFont (interRegular (metaSz));
+    g.setFont (firaCodeRegular (metaSz));
     g.drawText ("Time (samples)", pb.getX(), pb.getBottom() + 16, pb.getWidth(), 12, Justification::centred);
 }
 
@@ -882,13 +883,13 @@ void SpikeRatePanel::drawColourBar (Graphics& g, Rectangle<float> r)
         g.setColour (ColourMaps::turbo (t));
         g.fillRect (r.getX(), r.getY() + float (y), r.getWidth(), 1.0f);
     }
-    g.setFont (interRegular (10.0f));
+    g.setFont (firaCodeRegular (11.0f));
     g.setColour (findColour (ThemeColours::defaultText).withAlpha (0.85f));
     g.drawText ("100Hz",
-                int (r.getCentreX()) - 20, int (r.getY()) - 12,
+                int (r.getCentreX()) - 20, int (r.getY()) - 14,
                 40, 12, Justification::centred);
     g.drawText ("0Hz",
-                int (r.getCentreX()) - 20, int (r.getBottom()) + 1,
+                int (r.getCentreX()) - 20, int (r.getBottom()) + 3,
                 40, 12, Justification::centred);
 }
 
@@ -1017,7 +1018,7 @@ void SpikeRatePanel::paint (Graphics& g)
 
     // X axis: time ticks
     g.setColour (tickCol);
-    g.setFont (interRegular (tickSz));
+    g.setFont (firaCodeRegular (tickSz));
     for (int i = 0; i <= 4; ++i)
     {
         const float frac = float (i) / 4.0f;
@@ -1026,7 +1027,7 @@ void SpikeRatePanel::paint (Graphics& g)
         g.drawVerticalLine (int (x) - int (std::floor (frac)), float (pb.getBottom()), float (pb.getBottom()) + 4.0f);
         g.drawText (String (sec), int (x) - 14, pb.getBottom() + 4, 28, 12, Justification::centred);
     }
-    g.setFont (interRegular (metaSz));
+    g.setFont (firaCodeRegular (metaSz));
     g.drawText ("Time (s)", pb.getX(), pb.getBottom() + 16, pw_i, 12, Justification::centred);
 
     // Y axis: channel ticks
