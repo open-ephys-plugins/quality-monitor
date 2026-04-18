@@ -348,7 +348,7 @@ void QualityMonitor::finalizeFFT (int pi)
     const int kRefStart = hzToBin (500.0f);
     const int kRefEnd   = std::min (FFT_BINS - 1, hzToBin (5000.0f));
     const int kHFStart  = hzToBin (8000.0f);
-    const int kHFEnd    = std::min (FFT_BINS - 1, hzToBin (15000.0f));
+    const int kHFEnd    = std::min (FFT_BINS - 1, hzToBin (jmin (15000.0f, nyquist)));
 
     int numNoisyCh = 0;
     for (int c = 0; c < nCh; ++c)
