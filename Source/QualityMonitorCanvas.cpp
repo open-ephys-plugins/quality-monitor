@@ -431,8 +431,8 @@ void RmsHeatmapPanel::paint (Graphics& g)
         g.drawVerticalLine (int (x) - std::floor (frac), float (pb.getBottom()), float (pb.getBottom()) + 4.0f);
         g.drawText (String (sec), int (x) - 14, pb.getBottom() + 4, 28, 12, Justification::centred);
     }
-    g.setFont (firaCodeRegular (metaSz));
-    g.drawText ("Time (s)", pb.getX(), pb.getBottom() + 16, pw_i, 12, Justification::centred);
+    g.setFont (interRegular (metaSz));
+    g.drawText ("Time (s)", pb.getX(), pb.getBottom() + 20, pw_i, 12, Justification::centred);
 
     // Y axis: channel ticks
     drawChannelYTicks (g, pb, viewChStart, viewChEnd, tickCol, tickSz);
@@ -662,7 +662,7 @@ void PowerSpectrumPanel::paint (Graphics& g)
 
     // X axis: log-spaced frequency ticks
     g.setColour (tickCol);
-    g.setFont (interRegular (tickSz));
+    g.setFont (firaCodeRegular (tickSz));
     int lastLabelX = -100;
     for (float ft : { 10.0f, 20.0f, 50.0f, 100.0f, 200.0f, 500.0f, 1000.0f, 2000.0f, 5000.0f, 10000.0f, 20000.0f })
     {
@@ -674,12 +674,12 @@ void PowerSpectrumPanel::paint (Graphics& g)
         if (x - lastLabelX >= 28)
         {
             String lbl = ft >= 1000.0f ? (String (int (ft / 1000.0f)) + "k") : String (int (ft));
-            g.drawText (lbl, x - 14, pb.getBottom() + 4, 28, 11, Justification::centred);
+            g.drawText (lbl, x - 14, pb.getBottom() + 4, 28, 12, Justification::centred);
             lastLabelX = x;
         }
     }
-    g.setFont (firaCodeRegular (metaSz));
-    g.drawText ("Frequency (Hz)", pb.getX(), pb.getBottom() + 16, pw_i, 12, Justification::centred);
+    g.setFont (interRegular (metaSz));
+    g.drawText ("Frequency (Hz)", pb.getX(), pb.getBottom() + 20, pw_i, 12, Justification::centred);
 
     // Y axis: channel ticks
     drawChannelYTicks (g, pb, viewChStart, viewChEnd, tickCol, tickSz);
@@ -855,10 +855,10 @@ void DataSnapshotPanel::paint (Graphics& g)
         float x    = float (pb.getX()) + frac * float (pb.getWidth());
         int   samp = int (frac * float (SNAPSHOT_SAMPLES));
         g.drawVerticalLine (int (x), float (pb.getBottom()), float (pb.getBottom()) + 4.0f);
-        g.drawText (String (samp), int (x) - 14, pb.getBottom() + 4, 28, 11, Justification::centred);
+        g.drawText (String (samp), int (x) - 14, pb.getBottom() + 4, 28, 12, Justification::centred);
     }
-    g.setFont (firaCodeRegular (metaSz));
-    g.drawText ("Time (samples)", pb.getX(), pb.getBottom() + 16, pb.getWidth(), 12, Justification::centred);
+    g.setFont (interRegular (metaSz));
+    g.drawText ("Time (samples)", pb.getX(), pb.getBottom() + 20, pb.getWidth(), 12, Justification::centred);
 }
 
 // ─── SpikeRatePanel ───────────────────────────────────────────────────────────
@@ -1032,8 +1032,8 @@ void SpikeRatePanel::paint (Graphics& g)
         g.drawVerticalLine (int (x) - int (std::floor (frac)), float (pb.getBottom()), float (pb.getBottom()) + 4.0f);
         g.drawText (String (sec), int (x) - 14, pb.getBottom() + 4, 28, 12, Justification::centred);
     }
-    g.setFont (firaCodeRegular (metaSz));
-    g.drawText ("Time (s)", pb.getX(), pb.getBottom() + 16, pw_i, 12, Justification::centred);
+    g.setFont (interRegular (metaSz));
+    g.drawText ("Time (s)", pb.getX(), pb.getBottom() + 20, pw_i, 12, Justification::centred);
 
     // Y axis: channel ticks
     drawChannelYTicks (g, pb, viewChStart, viewChEnd, tickCol, tickSz);
