@@ -28,7 +28,7 @@
 
 static constexpr int  FFT_SIZE            = 4096;
 static constexpr int  FFT_BINS            = FFT_SIZE / 2 + 1;   // r2c output bins
-static constexpr int  SNAPSHOT_SAMPLES    = 1024;
+static constexpr int  SNAPSHOT_WINDOW_MS  = 100;                // snapshot window duration
 
 enum class ProbeStatus { UNKNOWN, PASS, WARN, FAIL };
 
@@ -53,7 +53,8 @@ struct ProbeMetrics
     std::vector<float> spikeRateHz;        // [numChannels] cumulative time-average
     std::vector<float> spikeRateLiveHz;    // [numChannels] most-recent window rate
     std::vector<float> powerSpectrum;      // [numChannels * FFT_BINS], linear power
-    std::vector<float> dataSnapshot;       // [numChannels * SNAPSHOT_SAMPLES], µV
+    int                snapshotSamples = 3000; // = sampleRate * SNAPSHOT_WINDOW_MS / 1000
+    std::vector<float> dataSnapshot;       // [numChannels * snapshotSamples], µV
 
     // RMS time-series heatmap: one frame per RMS window (~200 ms), durationSec * 5 total frames
     std::vector<float> rmsHistory;           // [rmsHistoryMaxFrames * numChannels]
@@ -84,6 +85,7 @@ struct ProbeMetrics
         sampleRate          = sr;
         analysisDurationSec = durationSec;
         rmsWindowSamples    = std::max (1, int (sr * 0.2f)); // 200 ms at this stream's sample rate
+        snapshotSamples     = std::max (1, int (sr * SNAPSHOT_WINDOW_MS / 1000.0f));
         const int maxFrames = std::max (1, int (float (durationSec) * sr / float (rmsWindowSamples)));
         rmsHistoryMaxFrames = maxFrames;
         rmsHistoryFrames         = 0;
@@ -93,7 +95,7 @@ struct ProbeMetrics
         spikeRateHz.assign           (nCh, 0.0f);
         spikeRateLiveHz.assign       (nCh, 0.0f);
         powerSpectrum.assign         (nCh * FFT_BINS, 0.0f);
-        dataSnapshot.assign          (nCh * SNAPSHOT_SAMPLES, 0.0f);
+        dataSnapshot.assign          (nCh * snapshotSamples, 0.0f);
         rmsHistory.assign            (nCh * maxFrames, 0.0f);
         spikeRateHistory.assign      (nCh * maxFrames, 0.0f);
         channelPowerlineDb.assign    (nCh, 0.0f);

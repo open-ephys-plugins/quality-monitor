@@ -140,6 +140,7 @@ public:
 private:
     std::vector<float> snapshot;
     std::vector<float> channelStdUV;
+    int   snapshotSamples = 3000;
     bool  hasData = false;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (DataSnapshotPanel)
@@ -267,7 +268,8 @@ private:
     std::unique_ptr<TextButton> saveBtn;
     std::unique_ptr<Label>      statusIndicator;
 
-    bool acquisitionActive = false;
+    bool acquisitionActive  = false;
+    int  snapRefreshCounter = 0;   // throttle DataSnapshotPanel to 1 Hz
 
     static constexpr int SIDEBAR_W = 240;
     static constexpr int HEADER_H  = 36;

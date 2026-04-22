@@ -117,7 +117,8 @@ void QualityMonitor::updateSettings()
         const int   nCh = (int) probeChannelIndices[pi].size();
         const float sr  = validStreams[pi]->getSampleRate();
         const int   dur = durationSeconds.load();
-        procState[pi].allocate (nCh, probeMetrics.getReference(pi).rmsWindowSamples);
+        procState[pi].allocate (nCh, probeMetrics.getReference(pi).rmsWindowSamples,
+                                      probeMetrics.getReference(pi).snapshotSamples);
         procState[pi].totalSamplesAllowed = int64_t (dur) * int64_t (sr + 0.5f);
     }
 }
@@ -299,13 +300,13 @@ void QualityMonitor::finalizeRms (int pi)
     // Linearize snapshot ring buffer into probeMetrics (lock already held)
     {
         const int writePos = ps.snapshotPos;
-        const int tail     = SNAPSHOT_SAMPLES - writePos;
+        const int tail     = ps.snapshotSamples - writePos;
         for (int c = 0; c < nCh; ++c)
         {
-            const float* ring = ps.snapshotRing.data() + c * SNAPSHOT_SAMPLES;
-            float*       dst  = m.dataSnapshot.data()  + c * SNAPSHOT_SAMPLES;
-            std::copy (ring + writePos, ring + SNAPSHOT_SAMPLES, dst);
-            std::copy (ring,            ring + writePos,         dst + tail);
+            const float* ring = ps.snapshotRing.data() + c * ps.snapshotSamples;
+            float*       dst  = m.dataSnapshot.data()  + c * ps.snapshotSamples;
+            std::copy (ring + writePos, ring + ps.snapshotSamples, dst);
+            std::copy (ring,            ring + writePos,           dst + tail);
         }
     }
 
@@ -491,15 +492,15 @@ void QualityMonitor::captureSnapshot (int pi, AudioBuffer<float>& buffer)
     const int nCh = (int) chIndices.size();
     const int numSamples = getNumSamplesInBlock (probeStreamIds[pi]);
     auto& ps = procState[pi];
-    const int N = std::min (numSamples, SNAPSHOT_SAMPLES);
+    const int N = std::min (numSamples, ps.snapshotSamples);
     const int pos = ps.snapshotPos;
-    const int wrap = SNAPSHOT_SAMPLES - pos;
+    const int wrap = ps.snapshotSamples - pos;
 
     // Channel-major: at most two contiguous copies per channel to handle the ring wrap
     for (int c = 0; c < nCh; ++c)
     {
         const float* src  = buffer.getReadPointer (chIndices[c]);
-        float*       ring = ps.snapshotRing.data() + c * SNAPSHOT_SAMPLES;
+        float*       ring = ps.snapshotRing.data() + c * ps.snapshotSamples;
         if (N <= wrap)
         {
             std::copy (src, src + N, ring + pos);
@@ -511,7 +512,7 @@ void QualityMonitor::captureSnapshot (int pi, AudioBuffer<float>& buffer)
         }
     }
 
-    ps.snapshotPos = (pos + N) % SNAPSHOT_SAMPLES;
+    ps.snapshotPos = (pos + N) % ps.snapshotSamples;
 }
 
 void QualityMonitor::copyMetricsTo (Array<ProbeMetrics>& dest)

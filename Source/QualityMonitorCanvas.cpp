@@ -693,6 +693,7 @@ void PowerSpectrumPanel::paint (Graphics& g)
 void DataSnapshotPanel::updateData (const ProbeMetrics& m)
 {
     snapshot = m.dataSnapshot;
+    snapshotSamples = m.snapshotSamples;
     initViewRange (m.numChannels);
 
     // Compute standard deviation per channel for the live strip
@@ -700,20 +701,20 @@ void DataSnapshotPanel::updateData (const ProbeMetrics& m)
     hasData = false;
     for (int c = 0; c < numCh && ! snapshot.empty(); ++c)
     {
-        const float* row = snapshot.data() + c * SNAPSHOT_SAMPLES;
+        const float* row = snapshot.data() + c * snapshotSamples;
         float sum = 0.0f;
-        for (int s = 0; s < SNAPSHOT_SAMPLES; ++s)
+        for (int s = 0; s < snapshotSamples; ++s)
             sum += row[s];
 
-        const float mean = sum / float (SNAPSHOT_SAMPLES);
+        const float mean = sum / float (snapshotSamples);
         float sumSq = 0.0f;
-        for (int s = 0; s < SNAPSHOT_SAMPLES; ++s)
+        for (int s = 0; s < snapshotSamples; ++s)
         {
             const float d = row[s] - mean;
             sumSq += d * d;
             if (row[s] != 0.0f) hasData = true;
         }
-        channelStdUV[c] = std::sqrt (sumSq / float (SNAPSHOT_SAMPLES));
+        channelStdUV[c] = std::sqrt (sumSq / float (snapshotSamples));
     }
 
     repaint();
@@ -743,7 +744,7 @@ void DataSnapshotPanel::paint (Graphics& g)
 
     g.setColour (tickCol);
     g.setFont (interRegular (metaSz));
-    g.drawText ("WINDOW SIZE " + String (SNAPSHOT_SAMPLES), b.removeFromTop (META_H), Justification::centredLeft);
+    g.drawText ("WINDOW SIZE " + String (SNAPSHOT_WINDOW_MS) + " ms  (" + String (snapshotSamples) + " samples)", b.removeFromTop (META_H), Justification::centredLeft);
 
     b.reduce (0, PLOT_PAD);
     if (snapshot.empty())
@@ -790,10 +791,10 @@ void DataSnapshotPanel::paint (Graphics& g)
             {
                 const int c = jlimit (0, numCh - 1,
                     viewChStart + y * viewCh_sn / ph_i);
-                const float* row = snapshot.data() + c * SNAPSHOT_SAMPLES;
+                const float* row = snapshot.data() + c * snapshotSamples;
                 for (int x = 0; x < pw_i; ++x)
                 {
-                    const int   s = jlimit (0, SNAPSHOT_SAMPLES - 1, x * SNAPSHOT_SAMPLES / pw_i);
+                    const int   s = jlimit (0, snapshotSamples - 1, x * snapshotSamples / pw_i);
                     const float t = jlimit (0.0f, 1.0f, (row[s] - minUV) / range);
                     bmd.setPixelColour (x, y, ColourMaps::cividis (t));
                 }
@@ -853,7 +854,7 @@ void DataSnapshotPanel::paint (Graphics& g)
     {
         float frac = float (i) / 4.0f;
         float x    = float (pb.getX()) + frac * float (pb.getWidth());
-        int   samp = int (frac * float (SNAPSHOT_SAMPLES));
+        int   samp = int (frac * float (snapshotSamples));
         g.drawVerticalLine (int (x), float (pb.getBottom()), float (pb.getBottom()) + 4.0f);
         g.drawText (String (samp), int (x) - 14, pb.getBottom() + 4, 28, 12, Justification::centred);
     }
@@ -1280,7 +1281,14 @@ void QualityMonitorCanvas::refresh()
     const auto& m = localMetrics[selectedProbe];
     content->rmsPanel->updateData (m);
     content->specPanel->updateData (m);
-    content->snapPanel->updateData (m);
+
+    // refresh snapshot panel at 1 Hz (canvas runs at 5 Hz)
+    if (snapRefreshCounter == 0)
+    {
+        content->snapPanel->updateData (m);
+    }
+    snapRefreshCounter = (snapRefreshCounter + 1) % int (refreshRate);
+
     content->spikePanel->updateData (m);
 
     // Update status indicator

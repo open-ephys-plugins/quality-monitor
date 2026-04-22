@@ -120,7 +120,8 @@ struct ProbeProcessingState
     bool                 spikeWarmupDone  = false; // skip first window (uncalibrated threshold)
 
     // Snapshot ring buffer — audio-thread only, no lock needed
-    std::vector<float> snapshotRing;    // [numChannels * SNAPSHOT_SAMPLES]
+    std::vector<float> snapshotRing;    // [numChannels * snapshotSamples]
+    int                snapshotSamples = 3000; // = sampleRate * SNAPSHOT_WINDOW_MS / 1000
     int                snapshotPos = 0; // next write position (wraps around)
 
     // Duration tracking (audio-thread only, no lock needed)
@@ -138,7 +139,7 @@ struct ProbeProcessingState
     std::vector<float>  scratchPlDb;       // size nCh — per-channel powerline band power (dB)
     std::vector<float>  scratchHFDb;       // size nCh — per-channel 8–15 kHz mean power (dB)
 
-    void allocate (int nCh, int windowSamples)
+    void allocate (int nCh, int windowSamples, int snapSamples)
     {
         rmsWindowSamples   = windowSamples;
         rmsSumSq.assign      (nCh, 0.0);
@@ -158,7 +159,8 @@ struct ProbeProcessingState
         cumSpikeSamples    = 0;
         spikeWarmupDone    = false;
 
-        snapshotRing.assign (nCh * SNAPSHOT_SAMPLES, 0.0f);
+        snapshotRing.assign (nCh * snapSamples, 0.0f);
+        snapshotSamples = snapSamples;
         snapshotPos = 0;
 
         totalSamplesAllowed   = 0;
