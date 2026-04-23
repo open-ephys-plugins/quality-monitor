@@ -787,6 +787,7 @@ void DataSnapshotPanel::paint (Graphics& g)
         {
             Image::BitmapData bmd (snapshotImg, Image::BitmapData::writeOnly);
 
+            // Average-pool over samples per pixel column (reduces aliasing).
             for (int y = 0; y < ph_i; ++y)
             {
                 const int c = jlimit (0, numCh - 1,
@@ -794,8 +795,15 @@ void DataSnapshotPanel::paint (Graphics& g)
                 const float* row = snapshot.data() + c * snapshotSamples;
                 for (int x = 0; x < pw_i; ++x)
                 {
-                    const int   s = jlimit (0, snapshotSamples - 1, x * snapshotSamples / pw_i);
-                    const float t = jlimit (0.0f, 1.0f, (row[s] - minUV) / range);
+                    const int sStart = x       * snapshotSamples / pw_i;
+                    const int sEnd   = std::max (sStart + 1, (x + 1) * snapshotSamples / pw_i);
+                    float sum = 0.0f;
+
+                    for (int s = sStart; s < sEnd && s < snapshotSamples; ++s)
+                        sum += row[s];
+
+                    const float val = sum / float (sEnd - sStart);
+                    const float t = jlimit (0.0f, 1.0f, (val - minUV) / range);
                     bmd.setPixelColour (x, y, ColourMaps::cividis (t));
                 }
             }
