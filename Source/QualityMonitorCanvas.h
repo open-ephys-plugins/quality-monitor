@@ -194,11 +194,14 @@ private:
 };
 
 // ─── ContentComponent ────────────────────────────────────────────────────────
-// Inner scrollable content holding the four plot panels in a 2×2 grid.
+// Inner scrollable content holding the four plot panels.
+// Supports three layout modes: 2×2 grid, 4×1 vertical stack, 1×4 horizontal stack.
 // Enforces minimum dimensions so plots stay readable at small window sizes.
 class ContentComponent : public Component
 {
 public:
+    enum class PanelLayout { Grid2x2, Stack4x1, Stack1x4 };
+
     ContentComponent();
 
     std::unique_ptr<RmsHeatmapPanel>    rmsPanel;
@@ -208,6 +211,9 @@ public:
 
     static constexpr int MIN_PANEL_W = 600;
     static constexpr int MIN_PANEL_H = 400;
+
+    PanelLayout currentLayout = PanelLayout::Grid2x2;
+    void setLayout (PanelLayout l);
 
     void resized() override;
 
@@ -266,6 +272,9 @@ private:
     std::unique_ptr<ToggleButton> autoStartBtn;
     std::unique_ptr<TextButton> captureBtn;
     std::unique_ptr<TextButton> saveBtn;
+    std::unique_ptr<Button> layoutGridBtn;
+    std::unique_ptr<Button> layoutHStackBtn;
+    std::unique_ptr<Button> layoutVStackBtn;
     std::unique_ptr<Label>      statusIndicator;
 
     bool acquisitionActive  = false;

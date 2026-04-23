@@ -1137,15 +1137,94 @@ ContentComponent::ContentComponent()
     addAndMakeVisible (spikePanel.get());
 }
 
+void ContentComponent::setLayout (PanelLayout l)
+{
+    currentLayout = l;
+    resized();
+}
+
 void ContentComponent::resized()
 {
     auto b = getLocalBounds();
-    auto top = b.removeFromTop (b.getHeight() / 2);
-    rmsPanel->setBounds  (top.removeFromLeft (top.getWidth() / 2));
-    specPanel->setBounds (top);
-    snapPanel->setBounds (b.removeFromLeft (b.getWidth() / 2));
-    spikePanel->setBounds (b);
+    switch (currentLayout)
+    {
+        case PanelLayout::Grid2x2:
+        {
+            auto top = b.removeFromTop (b.getHeight() / 2);
+            rmsPanel->setBounds  (top.removeFromLeft (top.getWidth() / 2));
+            specPanel->setBounds (top);
+            snapPanel->setBounds (b.removeFromLeft (b.getWidth() / 2));
+            spikePanel->setBounds (b);
+            break;
+        }
+        case PanelLayout::Stack4x1:
+        {
+            const int h = b.getHeight() / 4;
+            rmsPanel->setBounds   (b.removeFromTop (h));
+            specPanel->setBounds  (b.removeFromTop (h));
+            snapPanel->setBounds  (b.removeFromTop (h));
+            spikePanel->setBounds (b);
+            break;
+        }
+        case PanelLayout::Stack1x4:
+        {
+            const int w = b.getWidth() / 4;
+            rmsPanel->setBounds   (b.removeFromLeft (w));
+            specPanel->setBounds  (b.removeFromLeft (w));
+            snapPanel->setBounds  (b.removeFromLeft (w));
+            spikePanel->setBounds (b);
+            break;
+        }
+    }
 }
+
+// ─── LayoutButton ────────────────────────────────────────────────────────────
+
+class LayoutButton : public Button
+{
+public:
+    enum class Style { Fill, Stroke };
+
+    LayoutButton (const String& name, Path p)
+        : Button (name), path (std::move (p))
+    {
+        setClickingTogglesState (false);
+    }
+
+    void paintButton (Graphics& g, bool isHighlighted, bool /*isDown*/) override
+    {
+        const bool on = getToggleState();
+        const Colour c = isHighlighted ? findColour (ThemeColours::defaultText).withAlpha (0.65f)
+                                       : findColour (ThemeColours::defaultText);
+        if (on)
+            g.setColour (findColour (ThemeColours::highlightedFill));
+        else
+            g.setColour (findColour (ThemeColours::widgetBackground));
+
+        g.fillRoundedRectangle (getLocalBounds().toFloat(), 3.0f);
+
+        const auto iconBounds = getLocalBounds().reduced (3).toFloat();
+        const auto t = path.getTransformToScaleToFit (iconBounds, true);
+        g.setColour (c);
+        g.drawRoundedRectangle (iconBounds, 3.0f, 1.5f);
+        g.strokePath (path, PathStrokeType (1.5f), t);
+    }
+    
+private:
+    Path  path;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (LayoutButton)
+};
+
+// SVG path d-strings for each layout icon
+// Grid
+static const char* PATH_D_GRID = "M3 12h18m-9-9v18";
+
+// HStack
+static const char* PATH_D_HSTACK = "M7.5 3v18M12 3v18m4.5-18v18";
+
+// VStack
+static const char* PATH_D_VSTACK = "M21 7.5H3M21 12H3m18 4.5H3";
 
 // ─── QualityMonitorCanvas ────────────────────────────────────────────────────
 
@@ -1218,6 +1297,49 @@ QualityMonitorCanvas::QualityMonitorCanvas (QualityMonitor* proc)
     saveBtn = std::make_unique<TextButton> ("Save");
     saveBtn->setColour (TextButton::buttonColourId, Colour (0xff388e3c));
     addAndMakeVisible (saveBtn.get());
+
+    // Layout toggle buttons
+    auto makeLayoutBtn = [&] (std::unique_ptr<Button>& btn,
+                              const String& name, const char* pathD)
+    {
+        auto lb = std::make_unique<LayoutButton> (
+            name, Drawable::parseSVGPath (pathD));
+        lb->setTooltip (name);
+        btn = std::move (lb);
+        addAndMakeVisible (btn.get());
+    };
+
+    makeLayoutBtn (layoutGridBtn,   "Grid 2x2",       PATH_D_GRID);
+    makeLayoutBtn (layoutHStackBtn, "Horizontal 4x1", PATH_D_HSTACK);
+    makeLayoutBtn (layoutVStackBtn, "Vertical 1x4",   PATH_D_VSTACK);
+
+    // Default: grid selected
+    layoutGridBtn->setToggleState (true, dontSendNotification);
+
+    layoutGridBtn->onClick = [this]
+    {
+        content->setLayout (ContentComponent::PanelLayout::Grid2x2);
+        layoutPanels();
+        layoutGridBtn->setToggleState   (true,  dontSendNotification);
+        layoutHStackBtn->setToggleState (false, dontSendNotification);
+        layoutVStackBtn->setToggleState (false, dontSendNotification);
+    };
+    layoutHStackBtn->onClick = [this]
+    {
+        content->setLayout (ContentComponent::PanelLayout::Stack4x1);
+        layoutPanels();
+        layoutGridBtn->setToggleState   (false, dontSendNotification);
+        layoutHStackBtn->setToggleState (true,  dontSendNotification);
+        layoutVStackBtn->setToggleState (false, dontSendNotification);
+    };
+    layoutVStackBtn->onClick = [this]
+    {
+        content->setLayout (ContentComponent::PanelLayout::Stack1x4);
+        layoutPanels();
+        layoutGridBtn->setToggleState   (false, dontSendNotification);
+        layoutHStackBtn->setToggleState (false, dontSendNotification);
+        layoutVStackBtn->setToggleState (true,  dontSendNotification);
+    };
 
     statusIndicator = std::make_unique<Label>();
     statusIndicator->setText ("WAITING", dontSendNotification);
@@ -1334,6 +1456,15 @@ void QualityMonitorCanvas::layoutPanels()
     hdr.removeFromLeft (10);
     saveBtn->setBounds (hdr.removeFromLeft (60));
     hdr.removeFromLeft (10);
+    {
+        const int btnSz = hdr.getHeight();
+        layoutGridBtn->setBounds   (hdr.removeFromLeft (btnSz));
+        hdr.removeFromLeft (5);
+        layoutHStackBtn->setBounds (hdr.removeFromLeft (btnSz));
+        hdr.removeFromLeft (5);
+        layoutVStackBtn->setBounds (hdr.removeFromLeft (btnSz));
+    }
+    hdr.removeFromLeft (10);
     statusIndicator->setBounds (hdr.removeFromRight (90));
 
     // Sidebar
@@ -1345,8 +1476,22 @@ void QualityMonitorCanvas::layoutPanels()
 
     // Viewport fills remaining area; content is sized to at least the viewport
     viewport->setBounds (b);
-    int cw = std::max (b.getWidth(),  2 * ContentComponent::MIN_PANEL_W);
-    int ch = std::max (b.getHeight(), 2 * ContentComponent::MIN_PANEL_H);
+    int cw, ch;
+    switch (content->currentLayout)
+    {
+        case ContentComponent::PanelLayout::Stack1x4:
+            cw = std::max (b.getWidth(),  4 * ContentComponent::MIN_PANEL_W);
+            ch = std::max (b.getHeight(), ContentComponent::MIN_PANEL_H);
+            break;
+        case ContentComponent::PanelLayout::Stack4x1:
+            cw = std::max (b.getWidth(),  ContentComponent::MIN_PANEL_W);
+            ch = std::max (b.getHeight(), 4 * ContentComponent::MIN_PANEL_H);
+            break;
+        default: // Grid2x2
+            cw = std::max (b.getWidth(),  2 * ContentComponent::MIN_PANEL_W);
+            ch = std::max (b.getHeight(), 2 * ContentComponent::MIN_PANEL_H);
+            break;
+    }
     content->setSize (cw, ch);
 }
 
