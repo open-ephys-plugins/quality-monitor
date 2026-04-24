@@ -73,6 +73,7 @@ protected:
     int viewChStart = 0;
     int viewChEnd   = 0;
     Rectangle<int> lastPb;   // cached plot-area bounds from most recent paint()
+    std::vector<int> channelOrder; // displayRow → original channel number (set by updateData)
 
 private:
     void updateResetButtonVisibility();

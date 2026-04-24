@@ -24,6 +24,7 @@
 #ifndef PROBEMETRICS_H_DEFINED
 #define PROBEMETRICS_H_DEFINED
 #include <ProcessorHeaders.h>
+#include <numeric>
 #include <vector>
 
 static constexpr int  FFT_SIZE            = 4096;
@@ -79,6 +80,10 @@ struct ProbeMetrics
     std::vector<float> channelPowerlineDb;  // [numChannels] mean power ±3 bins around powerline fundamental (dB)
     std::vector<float> channelHFNoiseDb;    // [numChannels] mean power in 8–15 kHz band (dB)
 
+    // Depth-sort mapping: channelOrder[displayRow] = original channel number (0-based within probe).
+    // Identity when no depth metadata is available (i.e. unsorted).
+    std::vector<int>   channelOrder;        // [numChannels]
+
     void allocate (int nCh, float sr, int durationSec = 30)
     {
         numChannels         = nCh;
@@ -100,6 +105,8 @@ struct ProbeMetrics
         spikeRateHistory.assign      (nCh * maxFrames, 0.0f);
         channelPowerlineDb.assign    (nCh, 0.0f);
         channelHFNoiseDb.assign      (nCh, 0.0f);
+        channelOrder.resize          (nCh);
+        std::iota (channelOrder.begin(), channelOrder.end(), 0); // identity by default
     }
 
     void recomputeStatus()

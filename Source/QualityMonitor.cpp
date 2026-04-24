@@ -25,6 +25,9 @@
 
 #include "QualityMonitorEditor.h"
 
+#include <algorithm>
+#include <numeric>
+
 QualityMonitor::QualityMonitor()
     : GenericProcessor ("Quality Monitor")
 {
@@ -56,22 +59,112 @@ void QualityMonitor::updateSettings()
 
     Array<const DataStream*>     validStreams;
     std::vector<std::vector<int>> channelIndicesPerStream;
+    std::vector<std::vector<int>> channelOrdersPerStream; // sorted pos → original electrode number
 
     int globalOff = 0;
     for (auto* stream : dataStreams)
     {
-        std::vector<int> dataIndices;
+        // Collect electrode channel local and global indices
+        std::vector<int> elecLocalIdx;
+        std::vector<int> elecGlobalIdx;
         const Array<ContinuousChannel*> channels = stream->getContinuousChannels();
         for (int localIdx = 0; localIdx < channels.size(); ++localIdx)
         {
             if (channels[localIdx]->getChannelType() == ContinuousChannel::ELECTRODE)
-                dataIndices.push_back (globalOff + localIdx);
+            {
+                elecLocalIdx.push_back (localIdx);
+                elecGlobalIdx.push_back (globalOff + localIdx);
+            }
         }
 
-        if (! dataIndices.empty())
+        if (! elecLocalIdx.empty())
         {
+            // ── Depth-sort channels ──────────────────────────────────────────────
+            // Compatible with both legacy metadata (position.y encodes shank+xpos)
+            // and new metadata ("channel.ypos" = raw y, position.x, group.number).
+            const int nElec = (int) elecLocalIdx.size();
+            std::vector<float> depths (nElec);
+            std::vector<float> xposValues (nElec);
+            std::vector<int>   groups (nElec, 0);
+            bool allSame          = true;
+            bool anyYposMetadata  = false;
+            bool anyXposMetadata  = false;
+            bool anyGroupMetadata = false;
+            float last = 0.0f;
+
+            for (int i = 0; i < nElec; ++i)
+            {
+                const auto* ch = channels[elecLocalIdx[(size_t) i]];
+
+                // Legacy: position.y encodes depth + shank*10000 + xpos*0.001
+                float ypos = ch->position.y;
+
+                // New metadata (added in neuropixels-pxi 2.1.1): raw y-position
+                const int yposMetadataIndex = ch->findMetadata (
+                    MetadataDescriptor::MetadataType::FLOAT, 1, "channel.ypos");
+                if (yposMetadataIndex >= 0)
+                {
+                    if (const auto* yposValue = ch->getMetadataValue (yposMetadataIndex))
+                    {
+                        yposValue->getValue (ypos);
+                        anyYposMetadata = true;
+                        anyXposMetadata = true;
+                    }
+                }
+
+                depths[(size_t) i]     = ypos;
+                xposValues[(size_t) i] = ch->position.x;
+                groups[(size_t) i]     = ch->group.number;
+
+                if (! ch->group.name.equalsIgnoreCase ("default"))
+                    anyGroupMetadata = true;
+
+                if (i == 0)
+                    last = depths[(size_t) i];
+                else if (depths[(size_t) i] != last)
+                    allSame = false;
+            }
+
+            const bool positionMetadataAvailable = anyYposMetadata && anyXposMetadata;
+            const bool groupMetadataAvailable    = anyGroupMetadata;
+
+            // Only sort if there is meaningful depth/group information
+            if (groupMetadataAvailable || ! allSame || anyYposMetadata)
+            {
+                std::vector<int> order ((size_t) nElec);
+                std::iota (order.begin(), order.end(), 0);
+                std::sort (order.begin(), order.end(), [&] (int a, int b)
+                {
+                    const float depthDiff    = depths[(size_t) a] - depths[(size_t) b];
+                    const float depthEpsilon = 1.0e-3f;
+                    if (groupMetadataAvailable && groups[(size_t) a] != groups[(size_t) b])
+                        return groups[(size_t) a] < groups[(size_t) b];
+                    if (std::abs (depthDiff) >= depthEpsilon)
+                        return depths[(size_t) a] < depths[(size_t) b];
+                    if (positionMetadataAvailable)
+                        return xposValues[(size_t) a] < xposValues[(size_t) b];
+                    return a < b;
+                });
+
+                std::vector<int> sorted ((size_t) nElec);
+                for (int i = 0; i < nElec; ++i)
+                    sorted[(size_t) i] = elecGlobalIdx[order[(size_t) i]];
+                elecGlobalIdx = std::move (sorted);
+
+                channelOrdersPerStream.push_back (order);  // order[sortedPos] = original electrode number
+            }
+            else
+            {
+                LOGC ("No depth/group metadata for stream '", stream->getName(), "'; using original channel order");
+                // Identity: no sorting applied
+                std::vector<int> identity ((size_t) nElec);
+                std::iota (identity.begin(), identity.end(), 0);
+                channelOrdersPerStream.push_back (std::move (identity));
+            }
+            // ── End depth-sort ───────────────────────────────────────────────────
+
             validStreams.add (stream);
-            channelIndicesPerStream.push_back (std::move (dataIndices));
+            channelIndicesPerStream.push_back (std::move (elecGlobalIdx));
         }
 
         globalOff += stream->getChannelCount();
@@ -107,6 +200,7 @@ void QualityMonitor::updateSettings()
             probeMetrics.getReference(pi).streamName = validStreams[pi]->getName();
             probeMetrics.getReference(pi).rmsThresholdUV = prevRmsThr;
             probeMetrics.getReference(pi).powerlineHz = prevPlHz;
+            probeMetrics.getReference(pi).channelOrder = channelOrdersPerStream[pi];
         }
     }
 

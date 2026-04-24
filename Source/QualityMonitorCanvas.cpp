@@ -83,10 +83,12 @@ static Font firaCodeRegular (float size) { return Font (FontOptions ("Fira Code"
 
 // Draws Y-axis channel ticks for the visible channel range [viewChStart, viewChEnd).
 // Automatically picks evenly-spaced channel indices within the view range.
+// channelOrder — maps display row → original channel number (from ProbeMetrics::channelOrder)
 // tickCol  — caller-supplied colour (use defaultText.withAlpha for secondary elements)
 // fontSize — caller-computed dynamic size
 static void drawChannelYTicks (Graphics& g, Rectangle<int> pb,
                                 int viewChStart, int viewChEnd,
+                                const std::vector<int>& channelOrder,
                                 Colour tickCol, float fontSize)
 {
     const int viewCh = viewChEnd - viewChStart;
@@ -129,7 +131,8 @@ static void drawChannelYTicks (Graphics& g, Rectangle<int> pb,
     {
         const float y   = chCentreY (t);
         const int textY = jlimit (pb.getY(), pb.getBottom() - 10, int (y) - 5);
-        g.drawText (String (t), pb.getX() - AXIS_L, textY, AXIS_L - 6, 10, Justification::centredRight);
+        const int label = (t >= 0 && t < (int) channelOrder.size()) ? channelOrder[t] : t;
+        g.drawText (String (label), pb.getX() - AXIS_L, textY, AXIS_L - 6, 10, Justification::centredRight);
         g.drawHorizontalLine (int (y), float (pb.getX()) - 4.0f, float (pb.getX()));
     }
 }
@@ -267,6 +270,7 @@ void RmsHeatmapPanel::updateData (const ProbeMetrics& m)
     for (int i = 0; i < validSamples && i < (int) rmsHistory.size(); ++i)
         maxRms = std::max (maxRms, rmsHistory[i]);
 
+    channelOrder = m.channelOrder;
     initViewRange (m.numChannels);
     repaint();
 }
@@ -435,7 +439,7 @@ void RmsHeatmapPanel::paint (Graphics& g)
     g.drawText ("Time (s)", pb.getX(), pb.getBottom() + 20, pw_i, 12, Justification::centred);
 
     // Y axis: channel ticks
-    drawChannelYTicks (g, pb, viewChStart, viewChEnd, tickCol, tickSz);
+    drawChannelYTicks (g, pb, viewChStart, viewChEnd, channelOrder, tickCol, tickSz);
 
     drawColourBar (g, cbarBounds);
 }
@@ -450,6 +454,7 @@ void PowerSpectrumPanel::updateData (const ProbeMetrics& m)
     numNoisyCh         = m.numNoisyChannels;
     channelPowerlineDb = m.channelPowerlineDb;
     channelHFNoiseDb   = m.channelHFNoiseDb;
+    channelOrder       = m.channelOrder;
     initViewRange (m.numChannels);
 
     // Fixed dB range 0–100 for cross-probe comparability
@@ -682,7 +687,7 @@ void PowerSpectrumPanel::paint (Graphics& g)
     g.drawText ("Frequency (Hz)", pb.getX(), pb.getBottom() + 20, pw_i, 12, Justification::centred);
 
     // Y axis: channel ticks
-    drawChannelYTicks (g, pb, viewChStart, viewChEnd, tickCol, tickSz);
+    drawChannelYTicks (g, pb, viewChStart, viewChEnd, channelOrder, tickCol, tickSz);
 
     drawColourBar (g, cbarBounds);
 }
@@ -694,6 +699,7 @@ void DataSnapshotPanel::updateData (const ProbeMetrics& m)
 {
     snapshot = m.dataSnapshot;
     snapshotSamples = m.snapshotSamples;
+    channelOrder = m.channelOrder;
     initViewRange (m.numChannels);
 
     // Compute standard deviation per channel for the live strip
@@ -853,7 +859,7 @@ void DataSnapshotPanel::paint (Graphics& g)
                 40, 12, Justification::centred);
 
     // Y axis: channel ticks
-    drawChannelYTicks (g, pb, viewChStart, viewChEnd, tickCol, tickSz);
+    drawChannelYTicks (g, pb, viewChStart, viewChEnd, channelOrder, tickCol, tickSz);
 
     // X axis: time sample ticks
     g.setColour (tickCol);
@@ -884,6 +890,7 @@ void SpikeRatePanel::updateData (const ProbeMetrics& m)
     spikeFailHz          = m.spikeRateFailHz;
     spikeLowHz           = m.spikeRateLowHz;
     numLowCh             = m.numLowSpikeChannels;
+    channelOrder         = m.channelOrder;
     initViewRange (m.numChannels);
     repaint();
 }
@@ -1045,7 +1052,7 @@ void SpikeRatePanel::paint (Graphics& g)
     g.drawText ("Time (s)", pb.getX(), pb.getBottom() + 20, pw_i, 12, Justification::centred);
 
     // Y axis: channel ticks
-    drawChannelYTicks (g, pb, viewChStart, viewChEnd, tickCol, tickSz);
+    drawChannelYTicks (g, pb, viewChStart, viewChEnd, channelOrder, tickCol, tickSz);
 
     drawColourBar (g, cbarBounds);
 }
