@@ -25,6 +25,7 @@
 
 #include "QualityMonitor.h"
 
+#include <array>
 #include <algorithm>
 #include <cmath>
 #include <numeric>
@@ -39,20 +40,8 @@ Colour statusCol (ProbeStatus s)
     switch (s)
     {
         case ProbeStatus::PASS: return Colour (0xff4caf50);
-        case ProbeStatus::WARN: return Colour (0xffff9800);
         case ProbeStatus::FAIL: return Colour (0xfff44336);
         default:                return Colours::grey;
-    }
-}
-
-String statusStr (ProbeStatus s)
-{
-    switch (s)
-    {
-        case ProbeStatus::PASS: return "PASS";
-        case ProbeStatus::WARN: return "WARN";
-        case ProbeStatus::FAIL: return "FAIL";
-        default:                return "...";
     }
 }
 } // namespace QCColours
@@ -74,6 +63,14 @@ static void drawBadge (Graphics& g, Rectangle<int> r, Colour bg, const String& t
     g.setColour (Colours::white);
     g.setFont (Font (FontOptions ("Inter", "Semi Bold", 11.0f)));
     g.drawText (text, r, Justification::centred, false);
+}
+
+static void drawStatusIndicator (Graphics& g, Rectangle<float> bounds, ProbeStatus status)
+{
+    g.setColour (QCColours::statusCol (status));
+    g.fillEllipse (bounds);
+    g.setColour (Colours::black.withAlpha (0.6f));
+    g.drawEllipse (bounds, 1.0f);
 }
 
 // Font helpers — typefaces sized dynamically by each caller
@@ -707,6 +704,8 @@ void DataSnapshotPanel::updateData (const ProbeMetrics& m)
 {
     snapshot = m.dataSnapshot;
     snapshotSamples = m.snapshotSamples;
+    numSaturatedCh = m.numSaturatedChannels;
+    saturationThresholdUV = m.snapshotSaturationThresholdUV;
     channelOrder = m.channelOrder;
     initViewRange (m.numChannels);
 
@@ -756,9 +755,11 @@ void DataSnapshotPanel::paint (Graphics& g)
     g.setFont (interSemiBold (titleSz));
     g.drawText ("Data Snapshot", b.removeFromTop (TITLE_H).toFloat(), Justification::centredLeft);
 
+    auto metaRow = b.removeFromTop (META_H);
     g.setColour (tickCol);
     g.setFont (interRegular (metaSz));
-    g.drawText ("WINDOW SIZE " + String (SNAPSHOT_WINDOW_MS) + " ms  (" + String (snapshotSamples) + " samples)", b.removeFromTop (META_H), Justification::centredLeft);
+    auto windowLabel = metaRow.removeFromLeft (260);
+    g.drawText ("WINDOW SIZE " + String (SNAPSHOT_WINDOW_MS) + " ms", windowLabel, Justification::centredLeft);
 
     b.reduce (0, PLOT_PAD);
     if (snapshot.empty())
@@ -774,6 +775,10 @@ void DataSnapshotPanel::paint (Graphics& g)
     b.removeFromLeft (AXIS_L);
     b.removeFromRight (PLOT_PAD);
     auto pb = b;
+
+    if (numSaturatedCh > 0)
+        drawBadge (g, metaRow.reduced (2, 2).withRight (pb.getRight()), Colour (0xffe65100),
+                   String (numSaturatedCh) + " ch saturated above " + String (saturationThresholdUV, 0) + " μV");
 
     const int pw_i = pb.getWidth();
     const int ph_i = pb.getHeight();
@@ -1108,24 +1113,32 @@ void ProbeListModel::paintListBoxItem (int row, Graphics& g, int width, int heig
         g.drawRoundedRectangle (b.toFloat().reduced (2, 2), 5.0f, 1.0f);
     }
 
-    // Status dot
-    g.setColour (sc);
-    g.fillEllipse (9.0f, float (b.getCentreY()) - 5.0f, 10.0f, 10.0f);
-
     // Name
     String name = m.streamName.isEmpty() ? "Probe" : m.streamName;
     Colour textCol = parent->findColour (ThemeColours::defaultText);
     g.setColour (textCol);
     g.setFont (interSemiBold (14.0f));
-    g.drawText (name, 26, b.getY(), width - 80, height / 2 - 3, Justification::bottomLeft);
+    g.drawText (name, 12, b.getY(), width - 80, height / 2 - 3, Justification::bottomLeft);
 
     // Channel count
     g.setColour (textCol.withAlpha (0.75f));
     g.setFont (interRegular (12.0f));
-    g.drawText (String (m.numChannels) + " ch", 26, b.getY() + height / 2 + 3, width - 80, height / 2 - 3, Justification::topLeft);
+    g.drawText (String (m.numChannels) + " ch", 12, b.getY() + height / 2 + 3, width - 96, height / 2 - 3, Justification::topLeft);
 
-    // Status badge
-    drawBadge (g, b.removeFromRight (50).reduced (6, 10), sc, QCColours::statusStr (m.status));
+    const std::array<ProbeStatus, 4> plotStatuses { m.rmsStatus, m.spectrumStatus, m.snapshotStatus, m.spikeStatus };
+    Rectangle<float> indicatorArea = b.removeFromRight (66).toFloat().reduced (10.0f, 0.0f);
+    const float dotSize = 9.0f;
+    const float totalDotsWidth = dotSize * float (plotStatuses.size());
+    const float gap = plotStatuses.size() > 1
+        ? (indicatorArea.getWidth() - totalDotsWidth) / float (plotStatuses.size() - 1)
+        : 0.0f;
+    float dotX = indicatorArea.getX();
+    const float dotY = indicatorArea.getCentreY() - dotSize * 0.5f;
+    for (ProbeStatus plotStatus : plotStatuses)
+    {
+        drawStatusIndicator (g, Rectangle<float> (dotX, dotY, dotSize, dotSize), plotStatus);
+        dotX += dotSize + gap;
+    }
 }
 
 void ProbeListModel::selectedRowsChanged (int lastRowSelected)
@@ -1575,6 +1588,13 @@ void QualityMonitorCanvas::layoutPanels()
             ch = std::max (b.getHeight(), 2 * ContentComponent::MIN_PANEL_H);
             break;
     }
+
+    if (cw > b.getWidth())
+        ch -= 12; // reduce height to accommodate horizontal scrollbar if needed
+
+    if (ch > b.getHeight())
+        cw -= 12; // reduce width to accommodate vertical scrollbar if needed
+
     content->setSize (cw, ch);
 }
 

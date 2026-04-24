@@ -37,7 +37,6 @@ class QualityMonitorCanvas;
 namespace QCColours
 {
 Colour statusCol (ProbeStatus s);
-String statusStr (ProbeStatus s);
 } // namespace QCColours
 
 // ─── ZoomablePanel ────────────────────────────────────────────────────────────
@@ -142,6 +141,8 @@ private:
     std::vector<float> snapshot;
     std::vector<float> channelStdUV;
     int   snapshotSamples = 3000;
+    int   numSaturatedCh = 0;
+    float saturationThresholdUV = SNAPSHOT_SATURATION_THRESHOLD_UV;
     bool  hasData = false;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (DataSnapshotPanel)
