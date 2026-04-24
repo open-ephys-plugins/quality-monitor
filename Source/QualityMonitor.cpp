@@ -192,15 +192,25 @@ void QualityMonitor::updateSettings()
             const int   nCh = (int) probeChannelIndices[pi].size();
             const int   dur = durationSeconds.load();
 
-            // Preserve operator thresholds across reconfiguration
-            const float prevRmsThr = probeMetrics.getReference(pi).rmsThresholdUV > 0.0f ? probeMetrics.getReference(pi).rmsThresholdUV : 20.0f;
-            const float prevPlHz = probeMetrics.getReference(pi).powerlineHz > 0.0f ? probeMetrics.getReference(pi).powerlineHz : 60.0f;
+            auto& currentMetrics = probeMetrics.getReference (pi);
 
-            probeMetrics.getReference(pi).allocate (nCh, sr, dur);
-            probeMetrics.getReference(pi).streamName = validStreams[pi]->getName();
-            probeMetrics.getReference(pi).rmsThresholdUV = prevRmsThr;
-            probeMetrics.getReference(pi).powerlineHz = prevPlHz;
-            probeMetrics.getReference(pi).channelOrder = channelOrdersPerStream[pi];
+            // Rebuild from a clean state so stale metric values and status cannot survive reconfiguration.
+            ProbeMetrics resetMetrics;
+            if (currentMetrics.rmsThresholdUV > 0.0f)
+                resetMetrics.rmsThresholdUV = currentMetrics.rmsThresholdUV;
+            if (currentMetrics.spikeRateFailHz > 0.0f)
+                resetMetrics.spikeRateFailHz = currentMetrics.spikeRateFailHz;
+            if (currentMetrics.spikeRateLowHz > 0.0f)
+                resetMetrics.spikeRateLowHz = currentMetrics.spikeRateLowHz;
+            if (currentMetrics.powerlineHz > 0.0f)
+                resetMetrics.powerlineHz = currentMetrics.powerlineHz;
+            if (currentMetrics.powerlineSNRThresh > 0.0f)
+                resetMetrics.powerlineSNRThresh = currentMetrics.powerlineSNRThresh;
+
+            resetMetrics.allocate (nCh, sr, dur);
+            resetMetrics.streamName = validStreams[pi]->getName();
+            resetMetrics.channelOrder = channelOrdersPerStream[pi];
+            currentMetrics = std::move (resetMetrics);
         }
     }
 
