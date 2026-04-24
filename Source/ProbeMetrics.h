@@ -30,8 +30,9 @@
 static constexpr int  FFT_SIZE            = 4096;
 static constexpr int  FFT_BINS            = FFT_SIZE / 2 + 1;   // r2c output bins
 static constexpr int  SNAPSHOT_WINDOW_MS  = 100;                // snapshot window duration
+static constexpr float SNAPSHOT_SATURATION_THRESHOLD_UV = 1000.0f;
 
-enum class ProbeStatus { UNKNOWN, PASS, WARN, FAIL };
+enum class ProbeStatus { UNKNOWN, PASS, FAIL };
 
 struct ProbeMetrics
 {
@@ -41,6 +42,10 @@ struct ProbeMetrics
     int         numChannels  = 0;
     float       sampleRate   = 30000.0f;
     ProbeStatus status       = ProbeStatus::UNKNOWN;
+    ProbeStatus rmsStatus    = ProbeStatus::UNKNOWN;
+    ProbeStatus spectrumStatus = ProbeStatus::UNKNOWN;
+    ProbeStatus snapshotStatus = ProbeStatus::UNKNOWN;
+    ProbeStatus spikeStatus    = ProbeStatus::UNKNOWN;
 
     // Operator-adjustable thresholds
     float rmsThresholdUV     = 20.0f;
@@ -48,6 +53,7 @@ struct ProbeMetrics
     float spikeRateLowHz     = 2.0f;
     float powerlineHz        = 60.0f;
     float powerlineSNRThresh = 10.0f;   // dB above median → noisy
+    float snapshotSaturationThresholdUV = SNAPSHOT_SATURATION_THRESHOLD_UV;
 
     // Per-channel metrics (UI-thread copy)
     std::vector<float> rmsUV;              // [numChannels]
@@ -75,6 +81,7 @@ struct ProbeMetrics
     int numHighRmsChannels   = 0;
     int numLowSpikeChannels  = 0;
     int numNoisyChannels     = 0;
+    int numSaturatedChannels = 0;
 
     // Per-channel band power strips (computed by processor, copied to canvas)
     std::vector<float> channelPowerlineDb;  // [numChannels] mean power ±3 bins around powerline fundamental (dB)
@@ -96,6 +103,11 @@ struct ProbeMetrics
         rmsHistoryFrames         = 0;
         spikeRateHistoryFrames   = 0;
         processingDone           = false;
+        resetStatuses();
+        numHighRmsChannels       = 0;
+        numLowSpikeChannels      = 0;
+        numNoisyChannels         = 0;
+        numSaturatedChannels     = 0;
         rmsUV.assign                 (nCh, 0.0f);
         spikeRateHz.assign           (nCh, 0.0f);
         spikeRateLiveHz.assign       (nCh, 0.0f);
@@ -109,15 +121,33 @@ struct ProbeMetrics
         std::iota (channelOrder.begin(), channelOrder.end(), 0); // identity by default
     }
 
-    void recomputeStatus()
+    static ProbeStatus passFailFromAlertCount (int count)
     {
-        if (numHighRmsChannels > 50 || numLowSpikeChannels > 50)
-            status = ProbeStatus::FAIL;
-        else if (numHighRmsChannels > 10 || numLowSpikeChannels > 10
-                 || numNoisyChannels > 2)
-            status = ProbeStatus::WARN;
-        else
-            status = ProbeStatus::PASS;
+        return count > 0 ? ProbeStatus::FAIL : ProbeStatus::PASS;
+    }
+
+    void resetStatuses()
+    {
+        status = ProbeStatus::UNKNOWN;
+        rmsStatus = ProbeStatus::UNKNOWN;
+        spectrumStatus = ProbeStatus::UNKNOWN;
+        snapshotStatus = ProbeStatus::UNKNOWN;
+        spikeStatus = ProbeStatus::UNKNOWN;
+    }
+
+    void finalizeStatuses()
+    {
+        rmsStatus = passFailFromAlertCount (numHighRmsChannels);
+        spectrumStatus = passFailFromAlertCount (numNoisyChannels);
+        snapshotStatus = passFailFromAlertCount (numSaturatedChannels);
+        spikeStatus = passFailFromAlertCount (numLowSpikeChannels);
+
+        status = (rmsStatus == ProbeStatus::FAIL
+            || spectrumStatus == ProbeStatus::FAIL
+            || snapshotStatus == ProbeStatus::FAIL
+            || spikeStatus == ProbeStatus::FAIL)
+            ? ProbeStatus::FAIL
+            : ProbeStatus::PASS;
     }
 };
 

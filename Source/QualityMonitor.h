@@ -32,6 +32,7 @@
 
 #include <atomic>
 #include <cmath>
+#include <cstdint>
 #include <memory>
 #include <mutex>
 #include <vector>
@@ -121,6 +122,7 @@ struct ProbeProcessingState
 
     // Snapshot ring buffer — audio-thread only, no lock needed
     std::vector<float> snapshotRing;    // [numChannels * snapshotSamples]
+    std::vector<uint8_t> snapshotSaturated; // [numChannels] latched once |signal| exceeds the snapshot saturation threshold
     int                snapshotSamples = 3000; // = sampleRate * SNAPSHOT_WINDOW_MS / 1000
     int                snapshotPos = 0; // next write position (wraps around)
 
@@ -160,6 +162,7 @@ struct ProbeProcessingState
         spikeWarmupDone    = false;
 
         snapshotRing.assign (nCh * snapSamples, 0.0f);
+        snapshotSaturated.assign (nCh, 0);
         snapshotSamples = snapSamples;
         snapshotPos = 0;
 

@@ -353,7 +353,14 @@ void QualityMonitor::process (AudioBuffer<float>& buffer)
             ps.processingDone = true;
             {
                 std::lock_guard<std::mutex> lock (metricsMutex);
-                probeMetrics.getReference (pi).processingDone = true;
+                auto& m = probeMetrics.getReference (pi);
+                m.numSaturatedChannels = 0;
+                for (uint8_t saturated : ps.snapshotSaturated)
+                    if (saturated != 0)
+                        ++m.numSaturatedChannels;
+
+                m.processingDone = true;
+                m.finalizeStatuses();
             }
 
             // If every probe is now done, clear the flag so a new Capture run
@@ -414,7 +421,6 @@ void QualityMonitor::finalizeRms (int pi)
         }
     }
 
-    m.recomputeStatus();
 }
 
 void QualityMonitor::finalizeFFT (int pi)
@@ -530,7 +536,6 @@ void QualityMonitor::finalizeFFT (int pi)
     m.channelPowerlineDb = ps.scratchPlDb;
     m.channelHFNoiseDb   = ps.scratchHFDb;
     m.numNoisyChannels   = numNoisyCh;
-    m.recomputeStatus();
 }
 
 void QualityMonitor::finalizeSpikes (int pi)
@@ -587,7 +592,6 @@ void QualityMonitor::finalizeSpikes (int pi)
     for (float r : m.spikeRateHz)
         if (r < m.spikeRateFailHz)
             m.numLowSpikeChannels++;
-    m.recomputeStatus();
 }
 
 void QualityMonitor::captureSnapshot (int pi, AudioBuffer<float>& buffer)
@@ -605,6 +609,11 @@ void QualityMonitor::captureSnapshot (int pi, AudioBuffer<float>& buffer)
     {
         const float* src  = buffer.getReadPointer (chIndices[c]);
         float*       ring = ps.snapshotRing.data() + c * ps.snapshotSamples;
+        uint8_t&     saturated = ps.snapshotSaturated[(size_t) c];
+        for (int s = 0; s < N; ++s)
+            if (std::abs (src[s]) >= SNAPSHOT_SATURATION_THRESHOLD_UV)
+                saturated = 1;
+
         if (N <= wrap)
         {
             std::copy (src, src + N, ring + pos);
@@ -710,6 +719,7 @@ void QualityMonitor::doStartProcessing()
         ps.fftWinCount      = 0;
         std::fill (ps.powerAccum.begin(),    ps.powerAccum.end(),    0.0);
         std::fill (ps.snapshotRing.begin(),  ps.snapshotRing.end(),  0.0f);
+        std::fill (ps.snapshotSaturated.begin(), ps.snapshotSaturated.end(), uint8_t (0));
         ps.snapshotPos = 0;
     }
 
@@ -723,11 +733,24 @@ void QualityMonitor::doStartProcessing()
             const int   maxFrames = std::max (1, int (float (dur) * sr / float (m.rmsWindowSamples)));
 
             m.processingDone      = false;
+            m.resetStatuses();
+            m.numHighRmsChannels  = 0;
+            m.numLowSpikeChannels = 0;
+            m.numNoisyChannels    = 0;
+            m.numSaturatedChannels = 0;
             m.rmsHistoryFrames    = 0;
             m.spikeRateHistoryFrames = 0;
             m.analysisDurationSec = dur;
             m.rmsHistoryMaxFrames = maxFrames;
+            m.rmsUV.assign            (nCh, 0.0f);
+            m.spikeRateHz.assign      (nCh, 0.0f);
+            m.spikeRateLiveHz.assign  (nCh, 0.0f);
+            m.powerSpectrum.assign    (nCh * FFT_BINS, 0.0f);
+            m.dataSnapshot.assign     (nCh * m.snapshotSamples, 0.0f);
             m.rmsHistory.assign   (nCh * maxFrames, 0.0f);
+            m.spikeRateHistory.assign (nCh * maxFrames, 0.0f);
+            m.channelPowerlineDb.assign (nCh, 0.0f);
+            m.channelHFNoiseDb.assign   (nCh, 0.0f);
 
             procState[pi].totalSamplesAllowed =
                 int64_t (dur) * int64_t (sr + 0.5f);
