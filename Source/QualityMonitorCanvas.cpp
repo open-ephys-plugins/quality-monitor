@@ -81,6 +81,18 @@ static Font interRegular  (float size) { return Font (FontOptions ("Inter", "Reg
 static Font interSemiBold (float size) { return Font (FontOptions ("Inter", "Semi Bold", size)); }
 static Font firaCodeRegular (float size) { return Font (FontOptions ("Fira Code", "Regular", size)); }
 
+// Maps a pixel y coordinate to a channel index, based on the current view range and total height. 
+// Channels are indexed in display order (highest at the top), not original order.
+static int channelForPixelRow (int y, int height, int viewChStart, int viewChEnd)
+{
+    const int viewCh = viewChEnd - viewChStart;
+    if (viewCh <= 0 || height <= 0)
+        return viewChStart;
+
+    const int rowFromTop = y * viewCh / height;
+    return jlimit (viewChStart, viewChEnd - 1, viewChEnd - 1 - rowFromTop);
+}
+
 // Draws Y-axis channel ticks for the visible channel range [viewChStart, viewChEnd).
 // Automatically picks evenly-spaced channel indices within the view range.
 // channelOrder — maps display row → original channel number (from ProbeMetrics::channelOrder)
@@ -98,8 +110,9 @@ static void drawChannelYTicks (Graphics& g, Rectangle<int> pb,
     // Helper: pixel y for the centre of channel t's row
     auto chCentreY = [&] (int t) -> float
     {
-        return float (pb.getY())
-             + (float (t - viewChStart) + 0.5f) / float (viewCh) * float (pb.getHeight());
+           const int rowFromTop = (viewChEnd - 1) - t;
+           return float (pb.getY())
+               + (float (rowFromTop) + 0.5f) / float (viewCh) * float (pb.getHeight());
     };
 
     // Always show first and last; fit as many equally-spaced intermediate ticks
@@ -371,8 +384,7 @@ void RmsHeatmapPanel::paint (Graphics& g)
 
             for (int y = 0; y < ph_i; ++y)
             {
-                const int ch = jlimit (0, numCh - 1,
-                    viewChStart + y * viewCh_rms / ph_i);
+                const int ch = channelForPixelRow (y, ph_i, viewChStart, viewChEnd);
                 for (int x = 0; x < filledPx; ++x)
                 {
                     const int frame = std::min (rmsHistoryFrames - 1, std::max (0,
@@ -399,8 +411,7 @@ void RmsHeatmapPanel::paint (Graphics& g)
             Image::BitmapData bmd (stripImg, Image::BitmapData::writeOnly);
             for (int y = 0; y < sh; ++y)
             {
-                const int   ch   = jlimit (0, numCh - 1,
-                    viewChStart + y * viewCh_rms / sh);
+                const int   ch   = channelForPixelRow (y, sh, viewChStart, viewChEnd);
                 const float v    = jlimit (1e-6f, 100.0f, rmsUV[ch]);
                 const float t    = jlimit (0.0f, 1.0f, std::log10 (v) / 2.0f);
                 const int   barW = jlimit (0, sw, int (t * float (sw)));
@@ -577,8 +588,7 @@ void PowerSpectrumPanel::paint (Graphics& g)
 
             for (int y = 0; y < ph_i; ++y)
             {
-                const int c = jlimit (0, numCh - 1,
-                    viewChStart + y * viewCh_sp / ph_i);
+                const int c = channelForPixelRow (y, ph_i, viewChStart, viewChEnd);
                 const float* row = spectrum.data() + c * FFT_BINS;
                 for (int x = 0; x < pw_i; ++x)
                 {
@@ -605,8 +615,7 @@ void PowerSpectrumPanel::paint (Graphics& g)
             Image::BitmapData bmd (stripImg, Image::BitmapData::writeOnly);
             for (int y = 0; y < sh; ++y)
             {
-                const int   ch   = jlimit (0, numCh - 1,
-                    viewChStart + y * viewCh_sp / sh);
+                const int   ch   = channelForPixelRow (y, sh, viewChStart, viewChEnd);
                 const float v    = jlimit (1e-6f, 100.0f, std::max (0.0f, channelPowerlineDb[ch]));
                 const float t    = jlimit (0.0f, 1.0f, std::log10 (v) / 2.0f);
                 const int   barW = jlimit (0, sw, int (t * float (sw)));
@@ -631,8 +640,7 @@ void PowerSpectrumPanel::paint (Graphics& g)
             Image::BitmapData bmd (stripImg, Image::BitmapData::writeOnly);
             for (int y = 0; y < sh; ++y)
             {
-                const int   ch   = jlimit (0, numCh - 1,
-                    viewChStart + y * viewCh_sp / sh);
+                const int   ch   = channelForPixelRow (y, sh, viewChStart, viewChEnd);
                 const float v    = jlimit (1e-6f, 100.0f, std::max (0.0f, channelHFNoiseDb[ch]));
                 const float t    = jlimit (0.0f, 1.0f, std::log10 (v) / 2.0f);
                 const int   barW = jlimit (0, sw, int (t * float (sw)));
@@ -796,8 +804,7 @@ void DataSnapshotPanel::paint (Graphics& g)
             // Average-pool over samples per pixel column (reduces aliasing).
             for (int y = 0; y < ph_i; ++y)
             {
-                const int c = jlimit (0, numCh - 1,
-                    viewChStart + y * viewCh_sn / ph_i);
+                const int c = channelForPixelRow (y, ph_i, viewChStart, viewChEnd);
                 const float* row = snapshot.data() + c * snapshotSamples;
                 for (int x = 0; x < pw_i; ++x)
                 {
@@ -829,8 +836,7 @@ void DataSnapshotPanel::paint (Graphics& g)
             Image::BitmapData bmd (stripImg, Image::BitmapData::writeOnly);
             for (int y = 0; y < sh; ++y)
             {
-                const int   ch   = jlimit (0, numCh - 1,
-                    viewChStart + y * viewCh_sn / sh);
+                const int   ch   = channelForPixelRow (y, sh, viewChStart, viewChEnd);
                 const float t    = jlimit (0.0f, 1.0f, channelStdUV[ch] / 100.0f);
                 const int   barW = jlimit (0, sw, int (t * float (sw)));
                 const Colour col = ColourMaps::cividis (t);
@@ -983,8 +989,7 @@ void SpikeRatePanel::paint (Graphics& g)
                 int (int64_t (historyFrames) * int64_t (pw_i) / int64_t (historyMaxFrames)));
             for (int y = 0; y < ph_i; ++y)
             {
-                const int ch = jlimit (0, numCh - 1,
-                    viewChStart + y * viewCh_sr / ph_i);
+                const int ch = channelForPixelRow (y, ph_i, viewChStart, viewChEnd);
                 for (int x = 0; x < filledPx; ++x)
                 {
                     const int   frame = std::min (historyFrames - 1, std::max (0,
@@ -1009,8 +1014,7 @@ void SpikeRatePanel::paint (Graphics& g)
             Image::BitmapData bmd (stripImg, Image::BitmapData::writeOnly);
             for (int y = 0; y < sh; ++y)
             {
-                const int   ch   = jlimit (0, numCh - 1,
-                    viewChStart + y * viewCh_sr / sh);
+                const int   ch   = channelForPixelRow (y, sh, viewChStart, viewChEnd);
                 const float rate = rateHz[ch];
                 const float v    = jlimit (1e-6f, 100.0f, rate);
                 const float t    = jlimit (0.0f, 1.0f, std::log10 (v) / 2.0f);
@@ -1370,6 +1374,8 @@ void QualityMonitorCanvas::updateSettings()
     probeListBox->updateContent();
     if (selectedProbe < localMetrics.size())
         probeListBox->selectRow (selectedProbe, false, true);
+
+    snapRefreshCounter = 0;
 
     content->rmsPanel->resetZoom();
     content->specPanel->resetZoom();
