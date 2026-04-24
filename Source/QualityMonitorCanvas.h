@@ -278,6 +278,7 @@ private:
     std::unique_ptr<Label>      statusIndicator;
 
     bool acquisitionActive  = false;
+    bool processingDone    = false;
     int  snapRefreshCounter = 0;   // throttle DataSnapshotPanel to 1 Hz
 
     static constexpr int SIDEBAR_W = 240;
@@ -285,7 +286,9 @@ private:
 
     void selectProbe (int idx);
     void layoutPanels();
-    void updateButtonStates();
+
+    void startProcessing();
+    void stopProcessing();
 
     /** Generates an assertion if this class leaks */
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (QualityMonitorCanvas)
