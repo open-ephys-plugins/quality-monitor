@@ -28,6 +28,49 @@
 #include <algorithm>
 #include <numeric>
 
+// ── ProbeProcessingState::allocate() ─────────────────────────────────────────
+
+void ProbeProcessingState::allocate (int nCh, int windowSamples, int snapSamples)
+{
+    rmsWindowSamples = windowSamples;
+    rmsSumSq.assign     (nCh, 0.0);
+    rmsSampleCount  = 0;
+
+    fft = std::make_unique<FFTProcessor> (FFT_SIZE);
+    fftRing.assign      (nCh * FFT_SIZE, 0.0f);
+    fftRingPos      = 0;
+    fftWinCount     = 0;
+    powerAccum.assign   (nCh * FFT_BINS, 0.0);
+
+    spikeThreshV.assign  (nCh, 100e-6f); // 100 µV bootstrap
+    wasBelowThresh.assign (nCh, true);
+    spikeCount.assign    (nCh, 0);
+    spikeSampleCount = 0;
+    cumSpikeCount.assign (nCh, 0LL);
+    cumSpikeSamples  = 0;
+    spikeWarmupDone  = false;
+
+    snapshotRing.assign     (nCh * snapSamples, 0.0f);
+    snapshotSaturated.assign (nCh, 0);
+    snapshotSamples = snapSamples;
+    snapshotPos     = 0;
+
+    totalSamplesAllowed   = 0;
+    totalSamplesProcessed = 0;
+    processingDone        = false;
+
+    scratchRms.resize        (nCh);
+    scratchLiveRates.resize  (nCh);
+    scratchLocalRates.resize (nCh);
+    scratchSpec.resize       (nCh * FFT_BINS);
+    scratchSurround.resize   (40);
+    scratchPlDb.resize       (nCh);
+    scratchHFDb.resize       (nCh);
+}
+
+
+// ── QualityMonitor ─────────────────────────────────────────────────────────
+
 QualityMonitor::QualityMonitor()
     : GenericProcessor ("Quality Monitor")
 {
