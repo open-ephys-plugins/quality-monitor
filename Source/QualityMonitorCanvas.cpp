@@ -1527,8 +1527,8 @@ void QualityMonitorCanvas::refresh()
 void QualityMonitorCanvas::selectProbe (int idx)
 {
     selectedProbe = idx;
-    probeListModel->setMetrics (localMetrics, idx);
     probeListBox->selectRow (idx, false, true);
+    snapRefreshCounter = 0; // reset snapshot refresh counter to update immediately
     refresh();
 }
 
