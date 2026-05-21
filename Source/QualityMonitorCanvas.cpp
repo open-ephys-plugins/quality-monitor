@@ -56,14 +56,12 @@ static constexpr int AXIS_B   = 30;   // bottom: tick labels (14 px) + axis titl
 static constexpr int CBAR_W   = 14;
 static constexpr int STRIP_W  = 48;   // per-channel live bar strip width
 static constexpr int PANEL_EDITOR_H = 18;
-static constexpr int PANEL_EDITOR_ROW_GAP = 4;
+static constexpr int PANEL_EDITOR_COL_GAP = 10;
 static constexpr int PANEL_RESET_SLOT_W = 34;
 static constexpr int PANEL_CONTROL_RIGHT_PAD = 8;
+static constexpr int ALERT_BADGE_MAX_W = 220;
 static constexpr int RESET_BTN_SIZE = 18;
-static constexpr int RESET_BTN_PLOT_PAD = 6;
-static constexpr int RMS_EDITOR_W = 128;
-static constexpr int POWERLINE_EDITOR_W = 136;
-static constexpr int SPIKE_EDITOR_W = 128;
+static constexpr int PARAM_EDITOR_W = 140;
 
 static void drawBadge (Graphics& g, Rectangle<int> r, Colour bg, const String& text)
 {
@@ -82,12 +80,24 @@ static void drawStatusIndicator (Graphics& g, Rectangle<float> bounds, ProbeStat
     g.drawEllipse (bounds, 1.0f);
 }
 
+static Rectangle<int> getAlertBadgeBounds (Rectangle<int> rowBounds, int reservedLeftWidth = 0)
+{
+    rowBounds.removeFromLeft (jlimit (0, rowBounds.getWidth(), reservedLeftWidth));
+    rowBounds = rowBounds.reduced (2, 2);
+
+    if (rowBounds.getWidth() <= 0 || rowBounds.getHeight() <= 0)
+        return {};
+
+    const int badgeWidth = std::min (ALERT_BADGE_MAX_W, rowBounds.getWidth());
+    return rowBounds.withX (rowBounds.getRight() - badgeWidth).withWidth (badgeWidth);
+}
+
 // Font helpers — typefaces sized dynamically by each caller
 static Font interRegular  (float size) { return Font (FontOptions ("Inter", "Regular",   size)); }
 static Font interSemiBold (float size) { return Font (FontOptions ("Inter", "Semi Bold", size)); }
 static Font firaCodeRegular (float size) { return Font (FontOptions ("Fira Code", "Regular", size)); }
 
-static TextBoxParameterEditor* bindCompactTextEditor (std::unique_ptr<TextBoxParameterEditor>& editor,
+static TextBoxParameterEditor* bindCompactTextEditor (std::unique_ptr<TextBoxParameterEditor>& pEditor,
                                                       Component& owner,
                                                       Parameter* parameter,
                                                       const String& shortLabel,
@@ -95,32 +105,38 @@ static TextBoxParameterEditor* bindCompactTextEditor (std::unique_ptr<TextBoxPar
 {
     if (parameter == nullptr)
     {
-        if (editor != nullptr)
-        {
-            editor->setParameter (nullptr);
-            editor->setVisible (false);
-        }
-
+        pEditor.reset();
         return nullptr;
     }
 
-    if (editor == nullptr)
+    if (pEditor == nullptr)
     {
-        editor = std::make_unique<TextBoxParameterEditor> (parameter, PANEL_EDITOR_H, width);
-        editor->setLayout (ParameterEditor::nameOnLeft);
-        if (auto* label = editor->getLabel())
+        pEditor = std::make_unique<TextBoxParameterEditor> (parameter, PANEL_EDITOR_H, width);
+        pEditor->setLayout (ParameterEditor::nameOnLeft);
+        if (auto* label = pEditor->getLabel())
+        {
+            label->setJustificationType (Justification::centredLeft);
             label->setText (shortLabel, dontSendNotification);
-        editor->setAlwaysOnTop (true);
-        owner.addAndMakeVisible (editor.get());
+        }
+        pEditor->setAlwaysOnTop (true);
+        owner.addAndMakeVisible (pEditor.get());
     }
     else
     {
-        editor->setParameter (parameter);
-        editor->setVisible (true);
+        pEditor->setParameter (parameter);
     }
 
-    editor->setSize (width, PANEL_EDITOR_H);
-    return editor.get();
+    pEditor->setSize (width, PANEL_EDITOR_H);
+    if (auto* label = pEditor->getLabel())
+        label->setSize (70, PANEL_EDITOR_H);
+
+    if (auto* editor = pEditor->getEditor())
+    {
+        editor->setSize (width - 72, PANEL_EDITOR_H);
+        editor->setTopLeftPosition (72, 0);
+    }
+
+    return pEditor.get();
 }
 
 // Maps a pixel y coordinate to a channel index, based on the current view range and total height. 
@@ -210,21 +226,15 @@ ZoomablePanel::ZoomablePanel()
     resetZoomBtn->setTooltip ("Reset zoom");
     resetZoomBtn->setMouseCursor (MouseCursor::PointingHandCursor);
     resetZoomBtn->onClick = [this] { resetZoom(); };
-    resetZoomBtn->onStateChange = [this] { updateResetButtonAppearance(); };
     resetZoomBtn->setAlwaysOnTop (true);
+    resetZoomBtn->setOutline (findColour (ThemeColours::defaultText), 1.5f);
     addAndMakeVisible (resetZoomBtn.get());
-    updateResetButtonAppearance();
-}
-
-void ZoomablePanel::resized()
-{
-    updateResetButtonBounds();
+    resetZoomBtn->setVisible (false);
 }
 
 void ZoomablePanel::updateResetButtonVisibility()
 {
     resetZoomBtn->setVisible (numCh > 0 && (viewChStart != 0 || viewChEnd != numCh));
-    updateResetButtonAppearance();
 }
 
 void ZoomablePanel::initViewRange (int channelCount)
@@ -303,33 +313,21 @@ void ZoomablePanel::mouseWheelMove (const MouseEvent& e, const MouseWheelDetails
 
 void ZoomablePanel::colourChanged()
 {
-    updateResetButtonAppearance();
+    resetZoomBtn->setOutline (findColour (ThemeColours::defaultText), 1.5f);
 }
 
-Rectangle<int> ZoomablePanel::getHeaderControlBounds (int width, int rowIndex, int rowHeight) const
+Rectangle<int> ZoomablePanel::getHeaderControlBounds (int width, int columnIndex, int totalColumns, int rowHeight, int columnGap) const
 {
-    const int x = getWidth() - width - PANEL_RESET_SLOT_W - PANEL_CONTROL_RIGHT_PAD;
-    const int y = 8 + rowIndex * (rowHeight + PANEL_EDITOR_ROW_GAP);
+    const int x = PLOT_PAD + columnIndex * (width + columnGap);
+    const int y = PLOT_PAD + TITLE_H + std::max (0, (META_H - rowHeight) / 2);
     return Rectangle<int> (x, y, width, rowHeight);
 }
 
 void ZoomablePanel::updateResetButtonBounds()
 {
-    const auto plotBounds = lastPb.isEmpty() ? getLocalBounds().reduced (PLOT_PAD) : lastPb;
-    const int x = plotBounds.getRight() - RESET_BTN_SIZE - RESET_BTN_PLOT_PAD;
-    const int y = plotBounds.getBottom() - RESET_BTN_SIZE - RESET_BTN_PLOT_PAD;
+    const int x = getWidth() - RESET_BTN_SIZE - PLOT_PAD;
+    const int y = PLOT_PAD;
     resetZoomBtn->setBounds (x, y, RESET_BTN_SIZE, RESET_BTN_SIZE);
-}
-
-void ZoomablePanel::updateResetButtonAppearance()
-{
-    if (!resetZoomBtn->isVisible())
-        return;
-
-    const bool hovered = resetZoomBtn->isOver() || resetZoomBtn->isDown();
-    const auto iconColour = findColour (ThemeColours::defaultText).withAlpha (hovered ? 0.85f : 0.6f);
-    resetZoomBtn->setOutline (findColour (ThemeColours::defaultText).withAlpha (hovered ? 0.95f : 0.7f), 1.5f);
-    resetZoomBtn->setAlpha (hovered ? 1.0f : 0.5f);
 }
 
 // ─── RmsHeatmapPanel ─────────────────────────────────────────────────────────
@@ -337,16 +335,39 @@ void ZoomablePanel::updateResetButtonAppearance()
 
 void RmsHeatmapPanel::bindThresholdParameter (Parameter* parameter)
 {
-    bindCompactTextEditor (thresholdEditor, *this, parameter, "RMS", RMS_EDITOR_W);
+    bindCompactTextEditor (thresholdEditor, *this, parameter, "Threshold", PARAM_EDITOR_W);
     resized();
 }
 
 void RmsHeatmapPanel::resized()
 {
-    ZoomablePanel::resized();
-
     if (thresholdEditor != nullptr)
-        thresholdEditor->setBounds (getHeaderControlBounds (RMS_EDITOR_W, 0, PANEL_EDITOR_H));
+        thresholdEditor->setBounds (getHeaderControlBounds (PARAM_EDITOR_W, 0, 1, PANEL_EDITOR_H));
+
+    PanelLayoutCache newLayout;
+    auto b = getLocalBounds();
+    b.reduce (PLOT_PAD, PLOT_PAD);
+
+    auto titleRow = b.removeFromTop (TITLE_H);
+    titleRow.removeFromRight (PANEL_RESET_SLOT_W);
+    newLayout.titleBounds = titleRow;
+
+    auto controlRow = b.removeFromTop (META_H);
+    const int editorReserveWidth = thresholdEditor != nullptr ? PARAM_EDITOR_W + PANEL_CONTROL_RIGHT_PAD : 0;
+
+    b.reduce (0, PLOT_PAD);
+    b.removeFromBottom (AXIS_B);
+    newLayout.colourBarBounds = b.removeFromRight (CBAR_W + 4);
+    b.removeFromRight (PLOT_PAD);
+    newLayout.primaryStripBounds = b.removeFromRight (STRIP_W);
+    b.removeFromRight (PLOT_PAD);
+    b.removeFromLeft (AXIS_L);
+    newLayout.plotBounds = b;
+    newLayout.badgeBounds = getAlertBadgeBounds (controlRow.withRight (b.getRight()), editorReserveWidth);
+
+    panelLayout = newLayout;
+    lastPb = panelLayout.plotBounds;
+    updateResetButtonBounds();
 }
 
 void RmsHeatmapPanel::updateData (const ProbeMetrics& m)
@@ -405,41 +426,19 @@ void RmsHeatmapPanel::paint (Graphics& g)
     const Colour textCol = findColour (ThemeColours::defaultText);
     const Colour tickCol = textCol.withAlpha (0.8f);
 
-    b.reduce (PLOT_PAD, PLOT_PAD);
-
-    // Title row
-    auto titleRow = b.removeFromTop (TITLE_H);
-    if (thresholdEditor != nullptr && thresholdEditor->isVisible())
-        titleRow.removeFromRight (RMS_EDITOR_W + PANEL_RESET_SLOT_W + PANEL_CONTROL_RIGHT_PAD);
     g.setColour (textCol);
     g.setFont (interSemiBold (titleSz));
-    g.drawText ("RMS Heatmap", titleRow, Justification::centredLeft);
+    g.drawText ("RMS Heatmap", panelLayout.titleBounds, Justification::centredLeft);
 
-    // Meta row: threshold label
-    auto metaRow = b.removeFromTop (META_H);
-    g.setColour (tickCol);
-    g.setFont (interRegular (metaSz));
-    auto threshLabel = metaRow.removeFromLeft (160);
-    g.drawText ("THRESHOLD  " + String (threshUV, 0) + " μV", threshLabel, Justification::centredLeft);
-
-    b.reduce (0, PLOT_PAD);
-    if (rmsHistory.empty() || numCh == 0)
+    if (rmsHistory.empty() || numCh == 0 || panelLayout.plotBounds.isEmpty())
         return;
-        
-    b.removeFromBottom (AXIS_B);
-    
-    // Colour bar on right
-    auto cbarBounds = b.removeFromRight (CBAR_W + 4).toFloat();
-    b.removeFromRight (PLOT_PAD);
-    // Live per-channel strip (between main plot and gap before colour bar)
-    auto stripBounds = b.removeFromRight (STRIP_W);
-    b.removeFromRight (PLOT_PAD);
-    b.removeFromLeft (AXIS_L);
-    auto pb = b;
 
-    // Meta row: alert badge
-    if (numHighRms > 0)
-        drawBadge (g, metaRow.reduced (2, 2).withRight( pb.getRight()), Colour (0xffc62828),
+    const auto pb = panelLayout.plotBounds;
+    const auto stripBounds = panelLayout.primaryStripBounds;
+    const auto cbarBounds = panelLayout.colourBarBounds.toFloat();
+
+    if (numHighRms > 0 && ! panelLayout.badgeBounds.isEmpty())
+        drawBadge (g, panelLayout.badgeBounds, Colour (0xffc62828),
                    String (numHighRms) + " ch above " + String (threshUV, 0) + " μV threshold");
 
     const int pw_i = pb.getWidth();
@@ -447,8 +446,6 @@ void RmsHeatmapPanel::paint (Graphics& g)
     if (pw_i <= 0 || ph_i <= 0)
         return;
 
-    lastPb = pb;
-    updateResetButtonBounds();
     const int viewCh_rms = viewChEnd - viewChStart;
     if (viewCh_rms <= 0)
         return;
@@ -545,16 +542,42 @@ void RmsHeatmapPanel::paint (Graphics& g)
 
 void PowerSpectrumPanel::bindNoiseThresholdParameter (Parameter* parameter)
 {
-    bindCompactTextEditor (noiseThresholdEditor, *this, parameter, "PL SNR", POWERLINE_EDITOR_W);
+    bindCompactTextEditor (noiseThresholdEditor, *this, parameter, "SNR Thresh.", PARAM_EDITOR_W);
     resized();
 }
 
 void PowerSpectrumPanel::resized()
 {
-    ZoomablePanel::resized();
-
     if (noiseThresholdEditor != nullptr)
-        noiseThresholdEditor->setBounds (getHeaderControlBounds (POWERLINE_EDITOR_W, 0, PANEL_EDITOR_H));
+        noiseThresholdEditor->setBounds (getHeaderControlBounds (PARAM_EDITOR_W, 0, 1, PANEL_EDITOR_H));
+
+    PanelLayoutCache newLayout;
+    auto b = getLocalBounds();
+    b.reduce (PLOT_PAD, PLOT_PAD);
+
+    auto titleRow = b.removeFromTop (TITLE_H);
+    titleRow.removeFromRight (PANEL_RESET_SLOT_W);
+    newLayout.titleBounds = titleRow;
+
+    auto controlRow = b.removeFromTop (META_H);
+    const int editorReserveWidth = noiseThresholdEditor != nullptr ? PARAM_EDITOR_W + PANEL_CONTROL_RIGHT_PAD : 0;
+
+    b.reduce (0, PLOT_PAD);
+    b.removeFromBottom (AXIS_B);
+    newLayout.colourBarBounds = b.removeFromRight (CBAR_W + 4);
+    b.removeFromRight (PLOT_PAD);
+    auto stripZone = b.removeFromRight (STRIP_W * 2 + 4);
+    newLayout.secondaryStripBounds = stripZone.removeFromRight (STRIP_W);
+    stripZone.removeFromRight (4);
+    newLayout.primaryStripBounds = stripZone;
+    b.removeFromLeft (AXIS_L);
+    b.removeFromRight (PLOT_PAD);
+    newLayout.plotBounds = b;
+    newLayout.badgeBounds = getAlertBadgeBounds (controlRow.withRight (b.getRight()), editorReserveWidth);
+
+    panelLayout = newLayout;
+    lastPb = panelLayout.plotBounds;
+    updateResetButtonBounds();
 }
 
 void PowerSpectrumPanel::updateData (const ProbeMetrics& m)
@@ -612,50 +635,26 @@ void PowerSpectrumPanel::paint (Graphics& g)
     const Colour textCol = findColour (ThemeColours::defaultText);
     const Colour tickCol = textCol.withAlpha (0.8f);
 
-    b.reduce (PLOT_PAD, PLOT_PAD);
-
     g.setColour (textCol);
     g.setFont (interSemiBold (titleSz));
-    auto titleRow = b.removeFromTop (TITLE_H);
-    if (noiseThresholdEditor != nullptr && noiseThresholdEditor->isVisible())
-        titleRow.removeFromRight (POWERLINE_EDITOR_W + PANEL_RESET_SLOT_W + PANEL_CONTROL_RIGHT_PAD);
-    g.drawText ("Power Spectrum", titleRow, Justification::centredLeft);
+    g.drawText ("Power Spectrum", panelLayout.titleBounds, Justification::centredLeft);
 
-    auto metaRow = b.removeFromTop (META_H);
-    g.setColour (tickCol);
-    g.setFont (interRegular (metaSz));
-    auto plLabel = metaRow.removeFromLeft (280);
-    g.drawText ("POWERLINE NOISE  " + String (powerlineHz, 0) + " Hz   |   SNR THRESH  " + String (powerlineSNRThresh, 1) + " dB", plLabel, Justification::centredLeft);
-
-    b.reduce (0, PLOT_PAD);
-    if (spectrum.empty())
+    if (spectrum.empty() || panelLayout.plotBounds.isEmpty())
         return;
-    
-        b.removeFromBottom (AXIS_B);
 
-    // Colour bar on right
-    auto cbarBounds = b.removeFromRight (CBAR_W + 4).toFloat();
-    b.removeFromRight (PLOT_PAD);
-    // Two per-channel overview strips: HF noise (rightmost) + powerline noise (left of it)
-    auto stripZone    = b.removeFromRight (STRIP_W * 2 + 4);
-    auto hfStripBounds = stripZone.removeFromRight (STRIP_W);
-    stripZone.removeFromRight (4);          // gap between the two strips
-    auto plStripBounds = stripZone;
-    b.removeFromLeft (AXIS_L);
-    b.removeFromRight (PLOT_PAD);
-    auto pb = b;
+    const auto pb = panelLayout.plotBounds;
+    const auto plStripBounds = panelLayout.primaryStripBounds;
+    const auto hfStripBounds = panelLayout.secondaryStripBounds;
+    const auto cbarBounds = panelLayout.colourBarBounds.toFloat();
 
-    // Meta row: alert badge
-    if (numNoisyCh > 0)
-        drawBadge (g, metaRow.reduced (2, 2).withRight( pb.getRight()), Colour (0xffe65100), String (numNoisyCh) + " ch noisy");
+    if (numNoisyCh > 0 && ! panelLayout.badgeBounds.isEmpty())
+        drawBadge (g, panelLayout.badgeBounds, Colour (0xffe65100), String (numNoisyCh) + " ch noisy");
 
     const int pw_i = pb.getWidth();
     const int ph_i = pb.getHeight();
     if (pw_i <= 0 || ph_i <= 0)
         return;
 
-    lastPb = pb;
-    updateResetButtonBounds();
     const int viewCh_sp = viewChEnd - viewChStart;
     if (viewCh_sp <= 0)
         return;
@@ -841,6 +840,33 @@ void DataSnapshotPanel::updateData (const ProbeMetrics& m)
     repaint();
 }
 
+void DataSnapshotPanel::resized()
+{
+    PanelLayoutCache newLayout;
+    auto b = getLocalBounds();
+    b.reduce (PLOT_PAD, PLOT_PAD);
+
+    auto titleRow = b.removeFromTop (TITLE_H);
+    titleRow.removeFromRight (PANEL_RESET_SLOT_W);
+    newLayout.titleBounds = titleRow;
+
+    auto controlRow = b.removeFromTop (META_H);
+
+    b.reduce (0, PLOT_PAD);
+    b.removeFromBottom (AXIS_B);
+    newLayout.colourBarBounds = b.removeFromRight (CBAR_W + 4);
+    b.removeFromRight (PLOT_PAD);
+    newLayout.primaryStripBounds = b.removeFromRight (STRIP_W);
+    b.removeFromLeft (AXIS_L);
+    b.removeFromRight (PLOT_PAD);
+    newLayout.plotBounds = b;
+    newLayout.badgeBounds = getAlertBadgeBounds (controlRow.withRight (b.getRight()));
+
+    panelLayout = newLayout;
+    lastPb = panelLayout.plotBounds;
+    updateResetButtonBounds();
+}
+
 void DataSnapshotPanel::paint (Graphics& g)
 {
     auto b = getLocalBounds();
@@ -857,35 +883,23 @@ void DataSnapshotPanel::paint (Graphics& g)
     const Colour textCol = findColour (ThemeColours::defaultText);
     const Colour tickCol = textCol.withAlpha (0.8f);
 
-    b.reduce (PLOT_PAD, PLOT_PAD);
-
     g.setColour (textCol);
     g.setFont (interSemiBold (titleSz));
-    g.drawText ("Data Snapshot", b.removeFromTop (TITLE_H).toFloat(), Justification::centredLeft);
+    g.drawText ("Data Snapshot", panelLayout.titleBounds.toFloat(), Justification::centredLeft);
 
-    auto metaRow = b.removeFromTop (META_H);
     g.setColour (tickCol);
     g.setFont (interRegular (metaSz));
-    auto windowLabel = metaRow.removeFromLeft (260);
-    g.drawText ("WINDOW SIZE " + String (SNAPSHOT_WINDOW_MS) + " ms", windowLabel, Justification::centredLeft);
+    g.drawText ("WINDOW SIZE " + String (SNAPSHOT_WINDOW_MS) + " ms", panelLayout.badgeBounds.withX (PLOT_PAD).withWidth (200), Justification::centredLeft);
 
-    b.reduce (0, PLOT_PAD);
-    if (snapshot.empty())
+    if (snapshot.empty() || panelLayout.plotBounds.isEmpty())
         return;
 
-    b.removeFromBottom (AXIS_B);
+    const auto pb = panelLayout.plotBounds;
+    const auto stripBounds = panelLayout.primaryStripBounds;
+    const auto cbar = panelLayout.colourBarBounds.toFloat();
 
-    // Colour bar on right
-    auto cbar = b.removeFromRight (CBAR_W + 4).toFloat();
-    b.removeFromRight (PLOT_PAD);
-    // Live per-channel strip
-    auto stripBounds = b.removeFromRight (STRIP_W);
-    b.removeFromLeft (AXIS_L);
-    b.removeFromRight (PLOT_PAD);
-    auto pb = b;
-
-    if (numSaturatedCh > 0)
-        drawBadge (g, metaRow.reduced (2, 2).withRight (pb.getRight()), Colour (0xffe65100),
+    if (numSaturatedCh > 0 && ! panelLayout.badgeBounds.isEmpty())
+        drawBadge (g, panelLayout.badgeBounds, Colour (0xffe65100),
                    String (numSaturatedCh) + " ch saturated above " + String (saturationThresholdUV, 0) + " μV");
 
     const int pw_i = pb.getWidth();
@@ -893,8 +907,6 @@ void DataSnapshotPanel::paint (Graphics& g)
     if (pw_i <= 0 || ph_i <= 0)
         return;
 
-    lastPb = pb;
-    updateResetButtonBounds();
     const int viewCh_sn = viewChEnd - viewChStart;
     if (viewCh_sn <= 0)
         return;
@@ -1001,20 +1013,54 @@ void DataSnapshotPanel::paint (Graphics& g)
 
 void SpikeRatePanel::bindThresholdParameters (Parameter* failParameter, Parameter* lowParameter)
 {
-    bindCompactTextEditor (failThresholdEditor, *this, failParameter, "Fail", SPIKE_EDITOR_W);
-    bindCompactTextEditor (lowThresholdEditor, *this, lowParameter, "Low", SPIKE_EDITOR_W);
+    bindCompactTextEditor (failThresholdEditor, *this, failParameter, "Fail Thresh.", PARAM_EDITOR_W);
+    bindCompactTextEditor (lowThresholdEditor, *this, lowParameter, "Low Thresh.", PARAM_EDITOR_W);
     resized();
 }
 
 void SpikeRatePanel::resized()
 {
-    ZoomablePanel::resized();
-
+    int visibleControlCount = 0;
     if (failThresholdEditor != nullptr)
-        failThresholdEditor->setBounds (getHeaderControlBounds (SPIKE_EDITOR_W, 0, PANEL_EDITOR_H));
+        ++visibleControlCount;
+    if (lowThresholdEditor != nullptr)
+        ++visibleControlCount;
+
+    int columnIndex = 0;
+    if (failThresholdEditor != nullptr)
+        failThresholdEditor->setBounds (getHeaderControlBounds (PARAM_EDITOR_W, columnIndex++, visibleControlCount, PANEL_EDITOR_H, PANEL_EDITOR_COL_GAP));
 
     if (lowThresholdEditor != nullptr)
-        lowThresholdEditor->setBounds (getHeaderControlBounds (SPIKE_EDITOR_W, 1, PANEL_EDITOR_H));
+        lowThresholdEditor->setBounds (getHeaderControlBounds (PARAM_EDITOR_W, columnIndex++, visibleControlCount, PANEL_EDITOR_H, PANEL_EDITOR_COL_GAP));
+
+    PanelLayoutCache newLayout;
+    auto b = getLocalBounds();
+    b.reduce (PLOT_PAD, PLOT_PAD);
+
+    auto titleRow = b.removeFromTop (TITLE_H);
+        titleRow.removeFromRight (PANEL_RESET_SLOT_W);
+    newLayout.titleBounds = titleRow;
+
+    auto controlRow = b.removeFromTop (META_H);
+    const int editorReserveWidth = visibleControlCount > 0
+            ? visibleControlCount * PARAM_EDITOR_W
+                + std::max (0, visibleControlCount - 1) * PANEL_EDITOR_COL_GAP
+                + PANEL_CONTROL_RIGHT_PAD
+            : 0;
+
+    b.reduce (0, PLOT_PAD);
+    b.removeFromBottom (AXIS_B);
+    newLayout.colourBarBounds = b.removeFromRight (CBAR_W + 4);
+    b.removeFromRight (PLOT_PAD);
+    newLayout.primaryStripBounds = b.removeFromRight (STRIP_W);
+    b.removeFromRight (PLOT_PAD);
+    b.removeFromLeft (AXIS_L);
+    newLayout.plotBounds = b;
+    newLayout.badgeBounds = getAlertBadgeBounds (controlRow.withRight (b.getRight()), editorReserveWidth);
+
+    panelLayout = newLayout;
+    lastPb = panelLayout.plotBounds;
+    updateResetButtonBounds();
 }
 
 void SpikeRatePanel::updateData (const ProbeMetrics& m)
@@ -1066,40 +1112,19 @@ void SpikeRatePanel::paint (Graphics& g)
     const Colour textCol = findColour (ThemeColours::defaultText);
     const Colour tickCol = textCol.withAlpha (0.8f);
 
-    b.reduce (PLOT_PAD, PLOT_PAD);
-
     g.setColour (textCol);
     g.setFont (interSemiBold (titleSz));
-    auto titleRow = b.removeFromTop (TITLE_H);
-    if (failThresholdEditor != nullptr && failThresholdEditor->isVisible())
-        titleRow.removeFromRight (SPIKE_EDITOR_W + PANEL_RESET_SLOT_W + PANEL_CONTROL_RIGHT_PAD);
-    g.drawText ("Spike Rate", titleRow.toFloat(), Justification::centredLeft);
+    g.drawText ("Spike Rate", panelLayout.titleBounds.toFloat(), Justification::centredLeft);
 
-    auto metaRow = b.removeFromTop (META_H);
-    if (lowThresholdEditor != nullptr && lowThresholdEditor->isVisible())
-        metaRow.removeFromRight (SPIKE_EDITOR_W + PANEL_CONTROL_RIGHT_PAD);
-    g.setColour (tickCol);
-    g.setFont (interRegular (metaSz));
-    auto spikeLabel = metaRow.removeFromLeft (190);
-    g.drawText ("SPIKE THRESH  " + String (spikeFailHz, 1) + " Hz", spikeLabel, Justification::centredLeft);
-
-    b.reduce (0, PLOT_PAD);
-    if (spikeRateHistory.empty())
+    if (spikeRateHistory.empty() || panelLayout.plotBounds.isEmpty())
         return;
 
-    b.removeFromBottom (AXIS_B);
+    const auto pb = panelLayout.plotBounds;
+    const auto stripBounds = panelLayout.primaryStripBounds;
+    const auto cbarBounds = panelLayout.colourBarBounds.toFloat();
 
-    // Colour bar on right
-    auto cbarBounds = b.removeFromRight (CBAR_W + 4).toFloat();
-    b.removeFromRight (PLOT_PAD);
-    // Average spike rate overview strip
-    auto stripBounds = b.removeFromRight (STRIP_W);
-    b.removeFromRight (PLOT_PAD);
-    b.removeFromLeft (AXIS_L);
-    auto pb = b;
-
-    if (numLowCh > 0)
-        drawBadge (g, metaRow.reduced (2, 2).withRight( pb.getRight()), Colour (0xffc62828),
+    if (numLowCh > 0 && ! panelLayout.badgeBounds.isEmpty())
+        drawBadge (g, panelLayout.badgeBounds, Colour (0xffc62828),
                    String (numLowCh) + " ch below " + String (spikeFailHz, 1) + " Hz threshold");
 
     const int pw_i = pb.getWidth();
@@ -1107,8 +1132,6 @@ void SpikeRatePanel::paint (Graphics& g)
     if (pw_i <= 0 || ph_i <= 0)
         return;
 
-    lastPb = pb;
-    updateResetButtonBounds();
     const int viewCh_sr = viewChEnd - viewChStart;
     if (viewCh_sr <= 0)
         return;

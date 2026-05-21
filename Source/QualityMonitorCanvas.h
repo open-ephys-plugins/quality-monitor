@@ -40,6 +40,16 @@ namespace QCColours
 Colour statusCol (ProbeStatus s);
 } // namespace QCColours
 
+struct PanelLayoutCache
+{
+    Rectangle<int> titleBounds;
+    Rectangle<int> badgeBounds;
+    Rectangle<int> plotBounds;
+    Rectangle<int> primaryStripBounds;
+    Rectangle<int> secondaryStripBounds;
+    Rectangle<int> colourBarBounds;
+};
+
 // ─── ZoomablePanel ────────────────────────────────────────────────────────────
 // Abstract base for all four metric panels.
 // Owns the shared Y-axis zoom/pan state and mouse interaction logic.
@@ -59,8 +69,6 @@ public:
     // Restore full-probe view.
     void resetZoom();
 
-    void resized() override;
-
     // Cmd+wheel = zoom, Alt+wheel = pan, unmodified wheel = pass to Viewport.
     void mouseWheelMove  (const MouseEvent& e, const MouseWheelDetails& w) override;
     void mouseDoubleClick(const MouseEvent& e) override;
@@ -74,12 +82,11 @@ protected:
     int viewChEnd   = 0;
     Rectangle<int> lastPb;   // cached plot-area bounds from most recent paint()
     std::vector<int> channelOrder; // displayRow → original channel number (set by updateData)
-    Rectangle<int> getHeaderControlBounds (int width, int rowIndex, int rowHeight = 18) const;
+    Rectangle<int> getHeaderControlBounds (int width, int columnIndex = 0, int totalColumns = 1, int rowHeight = 18, int columnGap = 6) const;
     void updateResetButtonBounds();
 
 private:
     void updateResetButtonVisibility();
-    void updateResetButtonAppearance();
 
     std::unique_ptr<ShapeButton> resetZoomBtn;
 };
@@ -105,6 +112,7 @@ private:
     int numHighRms  = 0;
     float maxRms    = 1.0f;
     bool processingDone = false;
+    PanelLayoutCache panelLayout;
     std::unique_ptr<TextBoxParameterEditor> thresholdEditor;
     void drawColourBar (Graphics& g, Rectangle<float> r);
 
@@ -133,6 +141,7 @@ private:
     float gMinDb = -120.0f;
     float gMaxDb =    0.0f;
     bool  hasData = false;
+    PanelLayoutCache panelLayout;
     std::unique_ptr<TextBoxParameterEditor> noiseThresholdEditor;
     void drawColourBar (Graphics& g, Rectangle<float> r);
 
@@ -147,6 +156,7 @@ public:
     DataSnapshotPanel() = default;
     void updateData (const ProbeMetrics& m);
     void paint (Graphics& g) override;
+    void resized() override;
 
 private:
     std::vector<float> snapshot;
@@ -155,6 +165,7 @@ private:
     int   numSaturatedCh = 0;
     float saturationThresholdUV = SNAPSHOT_SATURATION_THRESHOLD_UV;
     bool  hasData = false;
+    PanelLayoutCache panelLayout;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (DataSnapshotPanel)
 };
@@ -180,6 +191,7 @@ private:
     float spikeFailHz = 0.1f;
     float spikeLowHz  = 2.0f;
     int numLowCh = 0;
+    PanelLayoutCache panelLayout;
     std::unique_ptr<TextBoxParameterEditor> failThresholdEditor;
     std::unique_ptr<TextBoxParameterEditor> lowThresholdEditor;
     void drawColourBar (Graphics& g, Rectangle<float> r);

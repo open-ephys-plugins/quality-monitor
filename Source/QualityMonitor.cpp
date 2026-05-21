@@ -124,7 +124,7 @@ void QualityMonitor::registerParameters()
                        "μV",
                        20.0f,
                        1.0f,
-                       500.0f,
+                       100.0f,
                        1.0f);
 
     addFloatParameter (Parameter::STREAM_SCOPE,
@@ -134,8 +134,8 @@ void QualityMonitor::registerParameters()
                        "dB",
                        10.0f,
                        0.0f,
-                       60.0f,
-                       0.5f);
+                       50.0f,
+                       1.0f);
 
     addFloatParameter (Parameter::STREAM_SCOPE,
                        kSpikeFailHzParam,
@@ -144,7 +144,7 @@ void QualityMonitor::registerParameters()
                        "Hz",
                        0.1f,
                        0.0f,
-                       100.0f,
+                       50.0f,
                        0.1f);
 
     addFloatParameter (Parameter::STREAM_SCOPE,
@@ -154,7 +154,7 @@ void QualityMonitor::registerParameters()
                        "Hz",
                        2.0f,
                        0.0f,
-                       100.0f,
+                       50.0f,
                        0.1f);
 }
 
@@ -378,7 +378,7 @@ void QualityMonitor::updateSettings()
             }
             else
             {
-                LOGC ("No depth/group metadata for stream '", stream->getName(), "'; using original channel order");
+                LOGD ("No depth/group metadata for stream '", stream->getName(), "'; using original channel order");
                 channelOrdersPerStream.push_back (std::move (selectedElectrodeNumbers));
             }
             // ── End depth-sort ───────────────────────────────────────────────────
