@@ -55,6 +55,15 @@ static constexpr int AXIS_L   = 36;   // left axis label width + tick mark lengt
 static constexpr int AXIS_B   = 30;   // bottom: tick labels (14 px) + axis title (14 px)
 static constexpr int CBAR_W   = 14;
 static constexpr int STRIP_W  = 48;   // per-channel live bar strip width
+static constexpr int PANEL_EDITOR_H = 18;
+static constexpr int PANEL_EDITOR_ROW_GAP = 4;
+static constexpr int PANEL_RESET_SLOT_W = 34;
+static constexpr int PANEL_CONTROL_RIGHT_PAD = 8;
+static constexpr int RESET_BTN_SIZE = 18;
+static constexpr int RESET_BTN_PLOT_PAD = 6;
+static constexpr int RMS_EDITOR_W = 128;
+static constexpr int POWERLINE_EDITOR_W = 136;
+static constexpr int SPIKE_EDITOR_W = 128;
 
 static void drawBadge (Graphics& g, Rectangle<int> r, Colour bg, const String& text)
 {
@@ -77,6 +86,42 @@ static void drawStatusIndicator (Graphics& g, Rectangle<float> bounds, ProbeStat
 static Font interRegular  (float size) { return Font (FontOptions ("Inter", "Regular",   size)); }
 static Font interSemiBold (float size) { return Font (FontOptions ("Inter", "Semi Bold", size)); }
 static Font firaCodeRegular (float size) { return Font (FontOptions ("Fira Code", "Regular", size)); }
+
+static TextBoxParameterEditor* bindCompactTextEditor (std::unique_ptr<TextBoxParameterEditor>& editor,
+                                                      Component& owner,
+                                                      Parameter* parameter,
+                                                      const String& shortLabel,
+                                                      int width)
+{
+    if (parameter == nullptr)
+    {
+        if (editor != nullptr)
+        {
+            editor->setParameter (nullptr);
+            editor->setVisible (false);
+        }
+
+        return nullptr;
+    }
+
+    if (editor == nullptr)
+    {
+        editor = std::make_unique<TextBoxParameterEditor> (parameter, PANEL_EDITOR_H, width);
+        editor->setLayout (ParameterEditor::nameOnLeft);
+        if (auto* label = editor->getLabel())
+            label->setText (shortLabel, dontSendNotification);
+        editor->setAlwaysOnTop (true);
+        owner.addAndMakeVisible (editor.get());
+    }
+    else
+    {
+        editor->setParameter (parameter);
+        editor->setVisible (true);
+    }
+
+    editor->setSize (width, PANEL_EDITOR_H);
+    return editor.get();
+}
 
 // Maps a pixel y coordinate to a channel index, based on the current view range and total height. 
 // Channels are indexed in display order (highest at the top), not original order.
@@ -165,20 +210,21 @@ ZoomablePanel::ZoomablePanel()
     resetZoomBtn->setTooltip ("Reset zoom");
     resetZoomBtn->setMouseCursor (MouseCursor::PointingHandCursor);
     resetZoomBtn->onClick = [this] { resetZoom(); };
+    resetZoomBtn->onStateChange = [this] { updateResetButtonAppearance(); };
     resetZoomBtn->setAlwaysOnTop (true);
-    resetZoomBtn->setOutline (findColour (ThemeColours::defaultText), 1.5f);
     addAndMakeVisible (resetZoomBtn.get());
-    resetZoomBtn->setVisible (false);
+    updateResetButtonAppearance();
 }
 
 void ZoomablePanel::resized()
 {
-    resetZoomBtn->setBounds (getWidth() - 26, 10, 16, 16);
+    updateResetButtonBounds();
 }
 
 void ZoomablePanel::updateResetButtonVisibility()
 {
     resetZoomBtn->setVisible (numCh > 0 && (viewChStart != 0 || viewChEnd != numCh));
+    updateResetButtonAppearance();
 }
 
 void ZoomablePanel::initViewRange (int channelCount)
@@ -257,11 +303,51 @@ void ZoomablePanel::mouseWheelMove (const MouseEvent& e, const MouseWheelDetails
 
 void ZoomablePanel::colourChanged()
 {
-    resetZoomBtn->setOutline (findColour (ThemeColours::defaultText), 1.5f);
+    updateResetButtonAppearance();
+}
+
+Rectangle<int> ZoomablePanel::getHeaderControlBounds (int width, int rowIndex, int rowHeight) const
+{
+    const int x = getWidth() - width - PANEL_RESET_SLOT_W - PANEL_CONTROL_RIGHT_PAD;
+    const int y = 8 + rowIndex * (rowHeight + PANEL_EDITOR_ROW_GAP);
+    return Rectangle<int> (x, y, width, rowHeight);
+}
+
+void ZoomablePanel::updateResetButtonBounds()
+{
+    const auto plotBounds = lastPb.isEmpty() ? getLocalBounds().reduced (PLOT_PAD) : lastPb;
+    const int x = plotBounds.getRight() - RESET_BTN_SIZE - RESET_BTN_PLOT_PAD;
+    const int y = plotBounds.getBottom() - RESET_BTN_SIZE - RESET_BTN_PLOT_PAD;
+    resetZoomBtn->setBounds (x, y, RESET_BTN_SIZE, RESET_BTN_SIZE);
+}
+
+void ZoomablePanel::updateResetButtonAppearance()
+{
+    if (!resetZoomBtn->isVisible())
+        return;
+
+    const bool hovered = resetZoomBtn->isOver() || resetZoomBtn->isDown();
+    const auto iconColour = findColour (ThemeColours::defaultText).withAlpha (hovered ? 0.85f : 0.6f);
+    resetZoomBtn->setOutline (findColour (ThemeColours::defaultText).withAlpha (hovered ? 0.95f : 0.7f), 1.5f);
+    resetZoomBtn->setAlpha (hovered ? 1.0f : 0.5f);
 }
 
 // ─── RmsHeatmapPanel ─────────────────────────────────────────────────────────
 //   Y axis = channels, X axis = time (one column per RMS window ∼1 s)
+
+void RmsHeatmapPanel::bindThresholdParameter (Parameter* parameter)
+{
+    bindCompactTextEditor (thresholdEditor, *this, parameter, "RMS", RMS_EDITOR_W);
+    resized();
+}
+
+void RmsHeatmapPanel::resized()
+{
+    ZoomablePanel::resized();
+
+    if (thresholdEditor != nullptr)
+        thresholdEditor->setBounds (getHeaderControlBounds (RMS_EDITOR_W, 0, PANEL_EDITOR_H));
+}
 
 void RmsHeatmapPanel::updateData (const ProbeMetrics& m)
 {
@@ -323,6 +409,8 @@ void RmsHeatmapPanel::paint (Graphics& g)
 
     // Title row
     auto titleRow = b.removeFromTop (TITLE_H);
+    if (thresholdEditor != nullptr && thresholdEditor->isVisible())
+        titleRow.removeFromRight (RMS_EDITOR_W + PANEL_RESET_SLOT_W + PANEL_CONTROL_RIGHT_PAD);
     g.setColour (textCol);
     g.setFont (interSemiBold (titleSz));
     g.drawText ("RMS Heatmap", titleRow, Justification::centredLeft);
@@ -360,6 +448,7 @@ void RmsHeatmapPanel::paint (Graphics& g)
         return;
 
     lastPb = pb;
+    updateResetButtonBounds();
     const int viewCh_rms = viewChEnd - viewChStart;
     if (viewCh_rms <= 0)
         return;
@@ -454,11 +543,26 @@ void RmsHeatmapPanel::paint (Graphics& g)
 
 // ─── PowerSpectrumPanel ───────────────────────────────────────────────────────
 
+void PowerSpectrumPanel::bindNoiseThresholdParameter (Parameter* parameter)
+{
+    bindCompactTextEditor (noiseThresholdEditor, *this, parameter, "PL SNR", POWERLINE_EDITOR_W);
+    resized();
+}
+
+void PowerSpectrumPanel::resized()
+{
+    ZoomablePanel::resized();
+
+    if (noiseThresholdEditor != nullptr)
+        noiseThresholdEditor->setBounds (getHeaderControlBounds (POWERLINE_EDITOR_W, 0, PANEL_EDITOR_H));
+}
+
 void PowerSpectrumPanel::updateData (const ProbeMetrics& m)
 {
     spectrum           = m.powerSpectrum;
     sampleRate         = m.sampleRate;
     powerlineHz        = m.powerlineHz;
+    powerlineSNRThresh = m.powerlineSNRThresh;
     numNoisyCh         = m.numNoisyChannels;
     channelPowerlineDb = m.channelPowerlineDb;
     channelHFNoiseDb   = m.channelHFNoiseDb;
@@ -512,13 +616,16 @@ void PowerSpectrumPanel::paint (Graphics& g)
 
     g.setColour (textCol);
     g.setFont (interSemiBold (titleSz));
-    g.drawText ("Power Spectrum", b.removeFromTop (TITLE_H), Justification::centredLeft);
+    auto titleRow = b.removeFromTop (TITLE_H);
+    if (noiseThresholdEditor != nullptr && noiseThresholdEditor->isVisible())
+        titleRow.removeFromRight (POWERLINE_EDITOR_W + PANEL_RESET_SLOT_W + PANEL_CONTROL_RIGHT_PAD);
+    g.drawText ("Power Spectrum", titleRow, Justification::centredLeft);
 
     auto metaRow = b.removeFromTop (META_H);
     g.setColour (tickCol);
     g.setFont (interRegular (metaSz));
-    auto plLabel = metaRow.removeFromLeft (210);
-    g.drawText ("POWERLINE NOISE  " + String (powerlineHz, 0) + " Hz", plLabel, Justification::centredLeft);
+    auto plLabel = metaRow.removeFromLeft (280);
+    g.drawText ("POWERLINE NOISE  " + String (powerlineHz, 0) + " Hz   |   SNR THRESH  " + String (powerlineSNRThresh, 1) + " dB", plLabel, Justification::centredLeft);
 
     b.reduce (0, PLOT_PAD);
     if (spectrum.empty())
@@ -548,6 +655,7 @@ void PowerSpectrumPanel::paint (Graphics& g)
         return;
 
     lastPb = pb;
+    updateResetButtonBounds();
     const int viewCh_sp = viewChEnd - viewChStart;
     if (viewCh_sp <= 0)
         return;
@@ -786,6 +894,7 @@ void DataSnapshotPanel::paint (Graphics& g)
         return;
 
     lastPb = pb;
+    updateResetButtonBounds();
     const int viewCh_sn = viewChEnd - viewChStart;
     if (viewCh_sn <= 0)
         return;
@@ -890,6 +999,24 @@ void DataSnapshotPanel::paint (Graphics& g)
 // ─── SpikeRatePanel ───────────────────────────────────────────────────────────
 //   Y axis = channels, X axis = time (one column per spike-rate window ~200 ms)
 
+void SpikeRatePanel::bindThresholdParameters (Parameter* failParameter, Parameter* lowParameter)
+{
+    bindCompactTextEditor (failThresholdEditor, *this, failParameter, "Fail", SPIKE_EDITOR_W);
+    bindCompactTextEditor (lowThresholdEditor, *this, lowParameter, "Low", SPIKE_EDITOR_W);
+    resized();
+}
+
+void SpikeRatePanel::resized()
+{
+    ZoomablePanel::resized();
+
+    if (failThresholdEditor != nullptr)
+        failThresholdEditor->setBounds (getHeaderControlBounds (SPIKE_EDITOR_W, 0, PANEL_EDITOR_H));
+
+    if (lowThresholdEditor != nullptr)
+        lowThresholdEditor->setBounds (getHeaderControlBounds (SPIKE_EDITOR_W, 1, PANEL_EDITOR_H));
+}
+
 void SpikeRatePanel::updateData (const ProbeMetrics& m)
 {
     rateHz               = m.spikeRateHz;
@@ -943,9 +1070,14 @@ void SpikeRatePanel::paint (Graphics& g)
 
     g.setColour (textCol);
     g.setFont (interSemiBold (titleSz));
-    g.drawText ("Spike Rate", b.removeFromTop (TITLE_H).toFloat(), Justification::centredLeft);
+    auto titleRow = b.removeFromTop (TITLE_H);
+    if (failThresholdEditor != nullptr && failThresholdEditor->isVisible())
+        titleRow.removeFromRight (SPIKE_EDITOR_W + PANEL_RESET_SLOT_W + PANEL_CONTROL_RIGHT_PAD);
+    g.drawText ("Spike Rate", titleRow.toFloat(), Justification::centredLeft);
 
     auto metaRow = b.removeFromTop (META_H);
+    if (lowThresholdEditor != nullptr && lowThresholdEditor->isVisible())
+        metaRow.removeFromRight (SPIKE_EDITOR_W + PANEL_CONTROL_RIGHT_PAD);
     g.setColour (tickCol);
     g.setFont (interRegular (metaSz));
     auto spikeLabel = metaRow.removeFromLeft (190);
@@ -976,6 +1108,7 @@ void SpikeRatePanel::paint (Graphics& g)
         return;
 
     lastPb = pb;
+    updateResetButtonBounds();
     const int viewCh_sr = viewChEnd - viewChStart;
     if (viewCh_sr <= 0)
         return;
@@ -1395,6 +1528,7 @@ void QualityMonitorCanvas::updateSettings()
     content->snapPanel->resetZoom();
     content->spikePanel->resetZoom();
 
+    updatePanelParameterEditors();
     layoutPanels();
     refresh();
 }
@@ -1524,11 +1658,39 @@ void QualityMonitorCanvas::refresh()
     }
 }
 
+Parameter* QualityMonitorCanvas::getSelectedProbeParameter (const String& parameterName) const
+{
+    if (processor == nullptr)
+        return nullptr;
+
+    const uint16 streamId = processor->getProbeStreamId (selectedProbe);
+    if (streamId == 0)
+        return nullptr;
+
+    if (auto* stream = processor->getDataStream (streamId))
+        return stream->getParameter (parameterName);
+
+    return nullptr;
+}
+
+void QualityMonitorCanvas::updatePanelParameterEditors()
+{
+    if (content == nullptr)
+        return;
+
+    content->rmsPanel->bindThresholdParameter (getSelectedProbeParameter (QualityMonitorParams::kRmsThresholdParam));
+    content->specPanel->bindNoiseThresholdParameter (getSelectedProbeParameter (QualityMonitorParams::kPowerlineSNRThreshParam));
+    content->spikePanel->bindThresholdParameters (
+        getSelectedProbeParameter (QualityMonitorParams::kSpikeFailHzParam),
+        getSelectedProbeParameter (QualityMonitorParams::kSpikeLowHzParam));
+}
+
 void QualityMonitorCanvas::selectProbe (int idx)
 {
     selectedProbe = idx;
     probeListBox->selectRow (idx, false, true);
     snapRefreshCounter = 0; // reset snapshot refresh counter to update immediately
+    updatePanelParameterEditors();
     refresh();
 }
 

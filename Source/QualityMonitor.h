@@ -37,6 +37,16 @@
 #include <mutex>
 #include <vector>
 
+namespace QualityMonitorParams
+{
+inline constexpr auto kMaskedChannelsParam = "selected_channels";
+inline constexpr auto kPowerlineHzParam    = "powerline_hz";
+inline constexpr auto kPowerlineSNRThreshParam = "powerline_snr_thresh_db";
+inline constexpr auto kRmsThresholdParam   = "rms_threshold_uv";
+inline constexpr auto kSpikeFailHzParam    = "spike_fail_hz";
+inline constexpr auto kSpikeLowHzParam     = "spike_low_hz";
+}
+
 // -- RAII wrapper: owns one r2c FFTW plan + its aligned buffers -------------------------------------------------
 class FFTProcessor
 {
@@ -165,6 +175,9 @@ public:
     /** Any parameter objects must be created inside this method */
     void registerParameters() override;
 
+    /** Called when a processor parameter value is updated. */
+    void parameterValueChanged (Parameter* parameter) override;
+
     /** Called every time the settings of an upstream plugin are changed.
 		Allows the processor to handle variations in the channel configuration or any other parameter
 		passed through signal chain. The processor can use this function to modify channel objects that
@@ -182,7 +195,11 @@ public:
     /** Called from UI thread — brief lock, safe to call frequently. */
     void setRmsThreshold    (int probeIdx, float uvThresh);
     void setSpikeRateThresh (int probeIdx, float failHz, float lowHz);
+    void setPowerlineSNRThreshold (int probeIdx, float snrThreshDb);
     void setPowerlineHz     (int probeIdx, float hz);
+
+    /** Returns the stream ID backing a probe sidebar entry. */
+    uint16 getProbeStreamId (int probeIdx) const;
 
     /** Set the analysis duration (read at next startAcquisition). */
     void setDurationSeconds (int sec);

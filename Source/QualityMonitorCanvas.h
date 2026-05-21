@@ -27,6 +27,7 @@
 #include "ProbeMetrics.h"
 #include "ColorMap.h"
 #include <AllLookAndFeels.h>
+#include <UIUtilitiesHeaders.h>
 #include <VisualizerWindowHeaders.h>
 #include <functional>
 #include <vector>
@@ -73,9 +74,12 @@ protected:
     int viewChEnd   = 0;
     Rectangle<int> lastPb;   // cached plot-area bounds from most recent paint()
     std::vector<int> channelOrder; // displayRow → original channel number (set by updateData)
+    Rectangle<int> getHeaderControlBounds (int width, int rowIndex, int rowHeight = 18) const;
+    void updateResetButtonBounds();
 
 private:
     void updateResetButtonVisibility();
+    void updateResetButtonAppearance();
 
     std::unique_ptr<ShapeButton> resetZoomBtn;
 };
@@ -86,8 +90,10 @@ class RmsHeatmapPanel : public ZoomablePanel
 {
 public:
     RmsHeatmapPanel() = default;
+    void bindThresholdParameter (Parameter* parameter);
     void updateData (const ProbeMetrics& m);
     void paint (Graphics& g) override;
+    void resized() override;
 
 private:
     std::vector<float> rmsUV;
@@ -99,6 +105,7 @@ private:
     int numHighRms  = 0;
     float maxRms    = 1.0f;
     bool processingDone = false;
+    std::unique_ptr<TextBoxParameterEditor> thresholdEditor;
     void drawColourBar (Graphics& g, Rectangle<float> r);
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (RmsHeatmapPanel)
@@ -110,8 +117,10 @@ class PowerSpectrumPanel : public ZoomablePanel
 {
 public:
     PowerSpectrumPanel() = default;
+    void bindNoiseThresholdParameter (Parameter* parameter);
     void updateData (const ProbeMetrics& m);
     void paint (Graphics& g) override;
+    void resized() override;
 
 private:
     std::vector<float> spectrum;
@@ -119,10 +128,12 @@ private:
     std::vector<float> channelHFNoiseDb;    // per-channel 8–15 kHz mean power (dB), copied from ProbeMetrics
     float sampleRate = 30000.0f;
     float powerlineHz = 60.0f;
+    float powerlineSNRThresh = 10.0f;
     int numNoisyCh = 0;
     float gMinDb = -120.0f;
     float gMaxDb =    0.0f;
     bool  hasData = false;
+    std::unique_ptr<TextBoxParameterEditor> noiseThresholdEditor;
     void drawColourBar (Graphics& g, Rectangle<float> r);
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PowerSpectrumPanel)
@@ -154,8 +165,10 @@ class SpikeRatePanel : public ZoomablePanel
 {
 public:
     SpikeRatePanel() = default;
+    void bindThresholdParameters (Parameter* failParameter, Parameter* lowParameter);
     void updateData (const ProbeMetrics& m);
     void paint (Graphics& g) override;
+    void resized() override;
 
 private:
     std::vector<float> rateHz;              // average rate per channel (overview strip)
@@ -167,6 +180,8 @@ private:
     float spikeFailHz = 0.1f;
     float spikeLowHz  = 2.0f;
     int numLowCh = 0;
+    std::unique_ptr<TextBoxParameterEditor> failThresholdEditor;
+    std::unique_ptr<TextBoxParameterEditor> lowThresholdEditor;
     void drawColourBar (Graphics& g, Rectangle<float> r);
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SpikeRatePanel)
@@ -288,6 +303,8 @@ private:
 
     void selectProbe (int idx);
     void layoutPanels();
+    Parameter* getSelectedProbeParameter (const String& parameterName) const;
+    void updatePanelParameterEditors();
 
     void startProcessing();
     void stopProcessing();

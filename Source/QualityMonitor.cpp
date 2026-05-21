@@ -28,6 +28,19 @@
 #include <algorithm>
 #include <numeric>
 
+namespace
+{
+using namespace QualityMonitorParams;
+
+float getFloatParameterValue (Parameter* parameter, float fallback)
+{
+    if (auto* floatParameter = dynamic_cast<FloatParameter*> (parameter))
+        return floatParameter->getFloatValue();
+
+    return fallback;
+}
+}
+
 // ── ProbeProcessingState::allocate() ─────────────────────────────────────────
 
 void ProbeProcessingState::allocate (int nCh, int windowSamples, int snapSamples)
@@ -88,11 +101,129 @@ AudioProcessorEditor* QualityMonitor::createEditor()
 
 void QualityMonitor::registerParameters()
 {
-    // Register any parameters here if needed
-    // For example: addSelectedChannelsParameter (Parameter::STREAM_SCOPE,
-    //                                 channels,
-    //                                 Channels,
-    //                                 Selected channels to use);
+    addMaskChannelsParameter (Parameter::STREAM_SCOPE,
+                              kMaskedChannelsParam,
+                              "Channels",
+                              "Electrode channels to include in quality monitoring",
+                              true);
+
+    addFloatParameter (Parameter::PROCESSOR_SCOPE,
+                       kPowerlineHzParam,
+                       "Powerline",
+                       "Fundamental line frequency used by the power spectrum plot",
+                       "Hz",
+                       60.0f,
+                       25.0f,
+                       120.0f,
+                       1.0f);
+
+    addFloatParameter (Parameter::STREAM_SCOPE,
+                       kRmsThresholdParam,
+                       "RMS Threshold",
+                       "RMS threshold for flagging noisy channels",
+                       "μV",
+                       20.0f,
+                       1.0f,
+                       500.0f,
+                       1.0f);
+
+    addFloatParameter (Parameter::STREAM_SCOPE,
+                       kPowerlineSNRThreshParam,
+                       "Powerline SNR",
+                       "Powerline SNR threshold for flagging noisy channels",
+                       "dB",
+                       10.0f,
+                       0.0f,
+                       60.0f,
+                       0.5f);
+
+    addFloatParameter (Parameter::STREAM_SCOPE,
+                       kSpikeFailHzParam,
+                       "Spike Fail",
+                       "Spike-rate threshold that marks a channel as failing",
+                       "Hz",
+                       0.1f,
+                       0.0f,
+                       100.0f,
+                       0.1f);
+
+    addFloatParameter (Parameter::STREAM_SCOPE,
+                       kSpikeLowHzParam,
+                       "Spike Low",
+                       "Spike-rate threshold that marks a channel as low activity",
+                       "Hz",
+                       2.0f,
+                       0.0f,
+                       100.0f,
+                       0.1f);
+}
+
+void QualityMonitor::parameterValueChanged (Parameter* parameter)
+{
+    if (parameter == nullptr)
+        return;
+
+    const String name = parameter->getName();
+
+    if (name.equalsIgnoreCase (kMaskedChannelsParam))
+    {
+        updateSettings();
+
+        if (editor != nullptr)
+        {
+            MessageManager::callAsync ([ed = editor.get()]() { ed->updateVisualizer(); });
+        }
+        return;
+    }
+
+    if (name.equalsIgnoreCase (kPowerlineHzParam))
+    {
+        const float hz = getFloatParameterValue (parameter, 60.0f);
+        std::lock_guard<std::mutex> lock (metricsMutex);
+        for (auto& metrics : probeMetrics)
+            metrics.powerlineHz = hz;
+        return;
+    }
+
+    if (parameter->getScope() != Parameter::STREAM_SCOPE)
+        return;
+
+    const uint16 streamId = parameter->getStreamId();
+    int probeIdx = -1;
+    for (int i = 0; i < (int) probeStreamIds.size(); ++i)
+    {
+        if (probeStreamIds[(size_t) i] == streamId)
+        {
+            probeIdx = i;
+            break;
+        }
+    }
+
+    if (probeIdx < 0)
+        return;
+
+    if (name.equalsIgnoreCase (kRmsThresholdParam))
+    {
+        setRmsThreshold (probeIdx, getFloatParameterValue (parameter, 20.0f));
+        return;
+    }
+
+    if (name.equalsIgnoreCase (kPowerlineSNRThreshParam))
+    {
+        setPowerlineSNRThreshold (probeIdx, getFloatParameterValue (parameter, 10.0f));
+        return;
+    }
+
+    if (name.equalsIgnoreCase (kSpikeFailHzParam) || name.equalsIgnoreCase (kSpikeLowHzParam))
+    {
+        auto* stream = getDataStream (streamId);
+        if (stream == nullptr)
+            return;
+
+        const float failHz = getFloatParameterValue (stream->getParameter (kSpikeFailHzParam), 0.1f);
+        const float lowHz  = getFloatParameterValue (stream->getParameter (kSpikeLowHzParam), 2.0f);
+        setSpikeRateThresh (probeIdx, failHz, std::max (failHz, lowHz));
+    }
 }
 
 void QualityMonitor::updateSettings()
@@ -122,6 +253,51 @@ void QualityMonitor::updateSettings()
 
         if (! elecLocalIdx.empty())
         {
+            auto* channelsParam = dynamic_cast<MaskChannelsParameter*> (stream->getParameter (kMaskedChannelsParam));
+            const int availableElectrodes = (int) elecLocalIdx.size();
+            std::vector<int> selectedElectrodeNumbers;
+
+            if (channelsParam != nullptr)
+            {
+                channelsParam->setChannelCount (availableElectrodes);
+
+                Array<int> selectedChannels = channelsParam->getArrayValue();
+                if (selectedChannels.isEmpty())
+                {
+                    for (int i = 0; i < availableElectrodes; ++i)
+                        selectedElectrodeNumbers.push_back (i);
+                }
+                else
+                {
+                    for (int i = 0; i < selectedChannels.size(); ++i)
+                    {
+                        const int selected = selectedChannels[i];
+                        if (selected >= 0 && selected < availableElectrodes)
+                            selectedElectrodeNumbers.push_back (selected);
+                    }
+                }
+            }
+
+            if (selectedElectrodeNumbers.empty())
+            {
+                selectedElectrodeNumbers.resize ((size_t) availableElectrodes);
+                std::iota (selectedElectrodeNumbers.begin(), selectedElectrodeNumbers.end(), 0);
+            }
+
+            std::vector<int> filteredLocalIdx;
+            std::vector<int> filteredGlobalIdx;
+            filteredLocalIdx.reserve (selectedElectrodeNumbers.size());
+            filteredGlobalIdx.reserve (selectedElectrodeNumbers.size());
+
+            for (int selected : selectedElectrodeNumbers)
+            {
+                filteredLocalIdx.push_back (elecLocalIdx[(size_t) selected]);
+                filteredGlobalIdx.push_back (elecGlobalIdx[(size_t) selected]);
+            }
+
+            elecLocalIdx = std::move (filteredLocalIdx);
+            elecGlobalIdx = std::move (filteredGlobalIdx);
+
             // ── Depth-sort channels ──────────────────────────────────────────────
             // Compatible with both legacy metadata (position.y encodes shank+xpos)
             // and new metadata ("channel.ypos" = raw y, position.x, group.number).
@@ -190,19 +366,20 @@ void QualityMonitor::updateSettings()
                 });
 
                 std::vector<int> sorted ((size_t) nElec);
+                std::vector<int> sortedChannelOrder ((size_t) nElec);
                 for (int i = 0; i < nElec; ++i)
+                {
                     sorted[(size_t) i] = elecGlobalIdx[order[(size_t) i]];
+                    sortedChannelOrder[(size_t) i] = selectedElectrodeNumbers[(size_t) order[(size_t) i]];
+                }
                 elecGlobalIdx = std::move (sorted);
 
-                channelOrdersPerStream.push_back (order);  // order[sortedPos] = original electrode number
+                channelOrdersPerStream.push_back (std::move (sortedChannelOrder));
             }
             else
             {
                 LOGC ("No depth/group metadata for stream '", stream->getName(), "'; using original channel order");
-                // Identity: no sorting applied
-                std::vector<int> identity ((size_t) nElec);
-                std::iota (identity.begin(), identity.end(), 0);
-                channelOrdersPerStream.push_back (std::move (identity));
+                channelOrdersPerStream.push_back (std::move (selectedElectrodeNumbers));
             }
             // ── End depth-sort ───────────────────────────────────────────────────
 
@@ -234,21 +411,22 @@ void QualityMonitor::updateSettings()
             const float sr  = validStreams[pi]->getSampleRate();
             const int   nCh = (int) probeChannelIndices[pi].size();
             const int   dur = durationSeconds.load();
+            auto* rmsThresholdParam = validStreams[pi]->getParameter (kRmsThresholdParam);
+            auto* powerlineSNRThreshParam = validStreams[pi]->getParameter (kPowerlineSNRThreshParam);
+            auto* spikeFailHzParam  = validStreams[pi]->getParameter (kSpikeFailHzParam);
+            auto* spikeLowHzParam   = validStreams[pi]->getParameter (kSpikeLowHzParam);
+            auto* powerlineHzParam  = getParameter (kPowerlineHzParam);
 
             auto& currentMetrics = probeMetrics.getReference (pi);
 
             // Rebuild from a clean state so stale metric values and status cannot survive reconfiguration.
             ProbeMetrics resetMetrics;
-            if (currentMetrics.rmsThresholdUV > 0.0f)
-                resetMetrics.rmsThresholdUV = currentMetrics.rmsThresholdUV;
-            if (currentMetrics.spikeRateFailHz > 0.0f)
-                resetMetrics.spikeRateFailHz = currentMetrics.spikeRateFailHz;
-            if (currentMetrics.spikeRateLowHz > 0.0f)
-                resetMetrics.spikeRateLowHz = currentMetrics.spikeRateLowHz;
-            if (currentMetrics.powerlineHz > 0.0f)
-                resetMetrics.powerlineHz = currentMetrics.powerlineHz;
-            if (currentMetrics.powerlineSNRThresh > 0.0f)
-                resetMetrics.powerlineSNRThresh = currentMetrics.powerlineSNRThresh;
+            resetMetrics.rmsThresholdUV = getFloatParameterValue (rmsThresholdParam, currentMetrics.rmsThresholdUV);
+            resetMetrics.spikeRateFailHz = getFloatParameterValue (spikeFailHzParam, currentMetrics.spikeRateFailHz);
+            resetMetrics.spikeRateLowHz = std::max (resetMetrics.spikeRateFailHz,
+                                                    getFloatParameterValue (spikeLowHzParam, currentMetrics.spikeRateLowHz));
+            resetMetrics.powerlineHz = getFloatParameterValue (powerlineHzParam, currentMetrics.powerlineHz);
+            resetMetrics.powerlineSNRThresh = getFloatParameterValue (powerlineSNRThreshParam, currentMetrics.powerlineSNRThresh);
 
             resetMetrics.allocate (nCh, sr, dur);
             resetMetrics.streamName = validStreams[pi]->getName();
@@ -694,11 +872,26 @@ void QualityMonitor::setSpikeRateThresh (int pi, float failHz, float lowHz)
     }
 }
 
+void QualityMonitor::setPowerlineSNRThreshold (int pi, float snrThreshDb)
+{
+    std::lock_guard<std::mutex> lock (metricsMutex);
+    if (pi < probeMetrics.size())
+        probeMetrics.getReference (pi).powerlineSNRThresh = snrThreshDb;
+}
+
 void QualityMonitor::setPowerlineHz (int pi, float hz)
 {
     std::lock_guard<std::mutex> lock (metricsMutex);
     if (pi < probeMetrics.size())
         probeMetrics.getReference (pi).powerlineHz = hz;
+}
+
+uint16 QualityMonitor::getProbeStreamId (int probeIdx) const
+{
+    if (probeIdx < 0 || probeIdx >= (int) probeStreamIds.size())
+        return 0;
+
+    return probeStreamIds[(size_t) probeIdx];
 }
 
 void QualityMonitor::setDurationSeconds (int sec)
