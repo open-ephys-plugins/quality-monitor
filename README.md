@@ -1,61 +1,104 @@
-# Visualizer Plugin Template
+# Quality Monitor
 
-This repository contains a template for building **Visualizer** plugins for the [Open Ephys GUI](https://github.com/open-ephys/plugin-GUI). Visualizer plugins are similar to Processor Plugins, but they also include a separate "Canvas" that can be used to display data or an extended configuration interface.
+Open Ephys GUI visualizer plugin for monitoring ephys data health in real time. It summarizes RMS noise, powerline and high-frequency spectral content, raw data snapshots, and spike-rate activity across all channels for each detected probe.
 
-Information on the Open Ephys Plugin API can be found on [the GUI's documentation site](https://open-ephys.github.io/gui-docs/Developer-Guide/Open-Ephys-Plugin-API.html).
+## Installation
 
-## Creating a new Visualizer Plugin
+If a release is available for your platform, install Quality Monitor through the
+Open Ephys GUI Plugin Installer. Open **File > Plugin Installer** or press
+**Ctrl+P** (**Cmd+P** on macOS), search for **Quality Monitor**, and install the
+desired version.
 
-1. Click "Use this template" to instantiate a new repository under your GitHub account. 
-2. Clone the new repository into a directory at the same level as the `plugin-GUI` repository. This is typically named `OEPlugins`, but it can have any name you'd like.
-3. Modify the [OpenEphysLib.cpp file](https://open-ephys.github.io/gui-docs/Developer-Guide/Creating-a-new-plugin.html) to include your plugin's name and version number.
-4. Create the plugin [build files](https://open-ephys.github.io/gui-docs/Developer-Guide/Compiling-plugins.html) using CMake.
-5. Use Visual Studio (Windows), Xcode (macOS), or `make` (Linux) to compile the plugin.
-6. Edit the code to add custom functionality, and add additional source files as needed.
+If the plugin is not listed for your platform, build it from source using the
+instructions below.
 
-## Repository structure
+## Usage
 
-This repository contains 3 top-level directories:
+Add Quality Monitor downstream of a Neuropixels signal source, then open the
+plugin canvas to inspect each probe. The left sidebar lists detected probes, and
+the main view shows four diagnostics for the selected probe:
 
-- `Build` - Plugin build files will be auto-generated here. These files will be ignored in all `git` commits.
-- `Source` - All plugin source files (`.h` and `.cpp`) should live here. There can be as many source code sub-directories as needed.
-- `Resources` - This is where you should store any non-source-code files, such as library files or scripts.
+- **RMS Heatmap** for channel-by-channel noise over time
+- **Power Spectrum** for powerline contamination and broadband noise
+- **Data Snapshot** for short raw-voltage excerpts and saturation checks
+- **Spike Rate** for cumulative and live firing-rate estimates
 
-## Using external libraries
+Use the editor to select the local powerline frequency (**50 Hz** or **60 Hz**).
+In the canvas, choose an analysis duration, enable **Auto Start** if you want
+analysis to begin with acquisition, or use **Capture** and **Stop** to control
+runs manually. Thresholds for RMS, powerline SNR, and spike-rate alerts can be
+adjusted per probe from the panel headers. Once a run completes, **Save** exports
+panel snapshots and a metrics JSON summary.
 
-To link the plugin to external libraries, it is necessary to manually edit the Build/CMakeLists.txt file. The code for linking libraries is located in comments at the end.
-For most common libraries, the `find_package` option is recommended. An example would be
 
-```cmake
-find_package(ZLIB)
-target_link_libraries(${PLUGIN_NAME} ${ZLIB_LIBRARIES})
-target_include_directories(${PLUGIN_NAME} PRIVATE ${ZLIB_INCLUDE_DIRS})
+## Building from source
+
+First, follow the instructions on the [Open Ephys GUI developer
+docs](https://open-ephys.github.io/gui-docs/Developer-Guide/Compiling-the-GUI.html)
+to build the Open Ephys GUI.
+
+This plugin is intended to live alongside the `plugin-GUI` repository:
+
+```text
+Code/
+├── plugin-GUI
+│   ├── Build
+│   ├── Plugins
+│   └── ...
+└── OEPlugins
+    └── quality-monitor
+        ├── Build
+        ├── Source
+        └── ...
 ```
 
-If there is no standard package finder for cmake, `find_library`and `find_path` can be used to find the library and include files respectively. The commands will search in a variety of standard locations For example
+Quality Monitor uses FFTW3. CMake is configured to look for platform-specific
+headers and libraries under `libs/` during configuration.
 
-```cmake
-find_library(ZMQ_LIBRARIES NAMES libzmq-v120-mt-4_0_4 zmq zmq-v120-mt-4_0_4) #the different names after names are not a list of libraries to include, but a list of possible names the library might have, useful for multiple architectures. find_library will return the first library found that matches any of the names
-find_path(ZMQ_INCLUDE_DIRS zmq.h)
+### Windows
 
-target_link_libraries(${PLUGIN_NAME} ${ZMQ_LIBRARIES})
-target_include_directories(${PLUGIN_NAME} PRIVATE ${ZMQ_INCLUDE_DIRS})
+**Requirements:** [Visual Studio 2022](https://visualstudio.microsoft.com/) and
+[CMake](https://cmake.org/install/)
+
+From the `Build` directory, run:
+
+```bash
+cmake -G "Visual Studio 17 2022" -A x64 ..
+cmake --build . --config Release
+cmake --install . --config Release
 ```
 
-### Providing libraries for Windows
+This builds the plugin DLL and copies it into the Open Ephys GUI `plugins`
+directory. You can also open the generated Visual Studio solution from `Build/`
+and build the `INSTALL` target there.
 
-Since Windows does not have standardized paths for libraries, as Linux and macOS do, it is sometimes useful to pack the appropriate Windows version of the required libraries alongside the plugin.
-To do so, a _libs_ directory has to be created **at the top level** of the repository, alongside this README file, and files from all required libraries placed there. The required folder structure is:
+### Linux
 
+**Requirements:** [CMake](https://cmake.org/install/)
+
+From the `Build` directory, run:
+
+```bash
+cmake -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Release ..
+cmake --build . -j4
+cmake --install .
 ```
-    libs
-    ├─ include           #library headers
-    ├─ lib
-        ├─ x64           #64-bit compile-time (.lib) files
-        └─ x86           #32-bit compile time (.lib) files, if needed
-    └─ bin
-        ├─ x64           #64-bit runtime (.dll) files
-        └─ x86           #32-bit runtime (.dll) files, if needed
+
+This builds the plugin `.so` and installs it into the compiled GUI's `plugins`
+directory.
+
+### macOS
+
+**Requirements:** [Xcode](https://developer.apple.com/xcode/) and
+[CMake](https://cmake.org/install/)
+
+From the `Build` directory, run:
+
+```bash
+cmake -G "Xcode" ..
+cmake --build . --config Release
+cmake --install . --config Release
 ```
 
-DLLs in the bin directories will be copied to the open-ephys GUI _shared_ folder when installing.
+This builds the plugin bundle and installs it to
+`~/Library/Application Support/open-ephys/plugins-api10`.
