@@ -97,6 +97,139 @@ static Font interRegular  (float size) { return Font (FontOptions ("Inter", "Reg
 static Font interSemiBold (float size) { return Font (FontOptions ("Inter", "Semi Bold", size)); }
 static Font firaCodeRegular (float size) { return Font (FontOptions ("Fira Code", "Regular", size)); }
 
+static String probeStatusToString (ProbeStatus status)
+{
+    switch (status)
+    {
+        case ProbeStatus::PASS: return "pass";
+        case ProbeStatus::FAIL: return "fail";
+        default:                return "unknown";
+    }
+}
+
+static String runStatusToString (bool acquisitionActive, bool processingDone)
+{
+    if (processingDone)
+        return "completed";
+
+    if (acquisitionActive)
+        return "running";
+
+    return "idle";
+}
+
+static String sanitizeFileNamePart (String text)
+{
+    String sanitized = text.trim();
+
+    if (sanitized.isEmpty())
+        sanitized = "unnamed_stream";
+
+    sanitized = sanitized.replaceCharacter (' ', '_');
+
+    const String allowed ("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_()");
+    String result;
+    result.preallocateBytes (sanitized.getNumBytesAsUTF8());
+
+    for (juce_wchar ch : sanitized)
+        result += allowed.containsChar (ch) ? String::charToString (ch) : "_";
+
+    while (result.contains ("__"))
+        result = result.replace ("__", "_");
+
+    return result.trimCharactersAtStart ("_").trimCharactersAtEnd ("_");
+}
+
+static Array<var> toVarArray (const std::vector<float>& values)
+{
+    Array<var> array;
+    array.ensureStorageAllocated ((int) values.size());
+    for (float value : values)
+        array.add (value);
+    return array;
+}
+
+static Array<var> toVarArray (const std::vector<int>& values)
+{
+    Array<var> array;
+    array.ensureStorageAllocated ((int) values.size());
+    for (int value : values)
+        array.add (value);
+    return array;
+}
+
+static bool isRunCompleted (const Array<ProbeMetrics>& metrics)
+{
+    if (metrics.isEmpty())
+        return false;
+
+    for (const auto& metric : metrics)
+    {
+        if (! metric.processingDone)
+            return false;
+    }
+
+    return true;
+}
+
+static var probeMetricsToVar (const ProbeMetrics& metrics, uint16 streamId)
+{
+    DynamicObject::Ptr probeObject = new DynamicObject();
+    DynamicObject::Ptr statusObject = new DynamicObject();
+    DynamicObject::Ptr thresholdObject = new DynamicObject();
+    DynamicObject::Ptr alertObject = new DynamicObject();
+
+    probeObject->setProperty ("name", metrics.streamName);
+    probeObject->setProperty ("channel_count", metrics.numChannels);
+    probeObject->setProperty ("sample_rate_hz", metrics.sampleRate);
+
+    statusObject->setProperty ("overall", probeStatusToString (metrics.status));
+    statusObject->setProperty ("rms", probeStatusToString (metrics.rmsStatus));
+    statusObject->setProperty ("spectrum", probeStatusToString (metrics.spectrumStatus));
+    statusObject->setProperty ("snapshot", probeStatusToString (metrics.snapshotStatus));
+    statusObject->setProperty ("spike", probeStatusToString (metrics.spikeStatus));
+
+    thresholdObject->setProperty ("rms_uv", metrics.rmsThresholdUV);
+    thresholdObject->setProperty ("spike_rate_fail_hz", metrics.spikeRateFailHz);
+    thresholdObject->setProperty ("spike_rate_low_hz", metrics.spikeRateLowHz);
+    thresholdObject->setProperty ("powerline_hz", metrics.powerlineHz);
+    thresholdObject->setProperty ("powerline_snr_thresh_db", metrics.powerlineSNRThresh);
+    thresholdObject->setProperty ("snapshot_saturation_uv", metrics.snapshotSaturationThresholdUV);
+
+    alertObject->setProperty ("high_rms_channel_count", metrics.numHighRmsChannels);
+    alertObject->setProperty ("low_spike_channel_count", metrics.numLowSpikeChannels);
+    alertObject->setProperty ("noisy_channel_count", metrics.numNoisyChannels);
+    alertObject->setProperty ("saturated_channel_count", metrics.numSaturatedChannels);
+
+    probeObject->setProperty ("status", var (statusObject.get()));
+    probeObject->setProperty ("thresholds", var (thresholdObject.get()));
+    probeObject->setProperty ("alerts", var (alertObject.get()));
+
+    return var (probeObject.get());
+}
+
+static Result writeComponentSnapshot (Component& component, Rectangle<int> bounds, const File& outputFile)
+{
+    if (component.getWidth() <= 0 || component.getHeight() <= 0)
+        return Result::fail ("Component has invalid bounds for snapshot export.");
+
+    bounds = bounds.getIntersection (component.getLocalBounds());
+    if (bounds.isEmpty())
+        return Result::fail ("Component plot bounds are empty for snapshot export.");
+
+    Image image = component.createComponentSnapshot (bounds);
+
+    PNGImageFormat pngFormat;
+    std::unique_ptr<FileOutputStream> stream (outputFile.createOutputStream());
+    if (stream == nullptr)
+        return Result::fail ("Unable to create output stream for " + outputFile.getFullPathName());
+
+    if (! pngFormat.writeImageToStream (image, *stream))
+        return Result::fail ("Unable to write PNG file " + outputFile.getFullPathName());
+
+    return Result::ok();
+}
+
 static BoundedValueParameterEditor* bindCompactParameterEditor (std::unique_ptr<BoundedValueParameterEditor>& pEditor,
                                                                 Component& owner,
                                                                 Parameter* parameter,
@@ -1478,6 +1611,12 @@ QualityMonitorCanvas::QualityMonitorCanvas (QualityMonitor* proc)
 
     saveBtn = std::make_unique<TextButton> ("Save");
     saveBtn->setColour (TextButton::buttonColourId, Colour (0xff388e3c));
+    saveBtn->setEnabled (false);
+    saveBtn->setTooltip ("Save the completed run as plot PNGs and metrics JSON");
+    saveBtn->onClick = [this]
+    {
+        saveCurrentRunArtifacts();
+    };
     addAndMakeVisible (saveBtn.get());
 
     // Layout toggle buttons
@@ -1540,6 +1679,9 @@ void QualityMonitorCanvas::refreshState() { updateSettings(); }
 void QualityMonitorCanvas::updateSettings()
 {
     processor->copyMetricsTo (localMetrics);
+    processingDone = isRunCompleted (localMetrics);
+    updateSaveButtonState();
+
     probeListModel->setMetrics (localMetrics, selectedProbe);
     probeListBox->updateContent();
     if (selectedProbe < localMetrics.size())
@@ -1562,13 +1704,12 @@ void QualityMonitorCanvas::beginAnimation()
     startCallbacks();
     acquisitionActive = true;
     processingDone = false;
+    updateSaveButtonState();
 
     if (autoStartBtn->getToggleState())
     {
         statusIndicator->setText ("RUNNING", dontSendNotification);
         statusIndicator->setColour (Label::textColourId, Colours::royalblue);
-
-        saveBtn->setEnabled (false); // only enable after processing is done
 
         captureBtn->setButtonText ("Stop");
         captureBtn->setColour (TextButton::buttonColourId, Colour (0xffd32f2f));
@@ -1587,12 +1728,12 @@ void QualityMonitorCanvas::endAnimation()
 {
     stopCallbacks();
     acquisitionActive = false;
+    updateSaveButtonState();
 
     if (processingDone)
     {
         statusIndicator->setText ("DONE", dontSendNotification);
         statusIndicator->setColour (Label::textColourId, Colours::seagreen);
-        saveBtn->setEnabled (true); // enable after processing is done
     }
     else
     {
@@ -1613,9 +1754,9 @@ void QualityMonitorCanvas::startProcessing()
     processor->startProcessing();
 
     processingDone = false;
+    updateSaveButtonState();
     statusIndicator->setText ("RUNNING", dontSendNotification);
     statusIndicator->setColour (Label::textColourId, Colours::royalblue);
-    saveBtn->setEnabled (false); // only enable after processing is done
 
     captureBtn->setButtonText ("Stop");
     captureBtn->setColour (TextButton::buttonColourId, Colour (0xffd32f2f));
@@ -1628,6 +1769,8 @@ void QualityMonitorCanvas::startProcessing()
 void QualityMonitorCanvas::stopProcessing()
 {
     processor->stopProcessing();
+    processingDone = false;
+    updateSaveButtonState();
 
     statusIndicator->setText ("IDLE", dontSendNotification);
     statusIndicator->setColour (Label::textColourId, Colours::orangered);
@@ -1643,6 +1786,8 @@ void QualityMonitorCanvas::stopProcessing()
 void QualityMonitorCanvas::refresh()
 {
     processor->copyMetricsTo (localMetrics);
+    processingDone = isRunCompleted (localMetrics);
+    updateSaveButtonState();
 
     // Update the sidebar list with latest status colours
     probeListModel->setMetrics (localMetrics, selectedProbe);
@@ -1665,13 +1810,10 @@ void QualityMonitorCanvas::refresh()
 
     content->spikePanel->updateData (m);
 
-    processingDone = m.processingDone;
-
     if (processingDone)
     {
         statusIndicator->setText ("DONE", dontSendNotification);
         statusIndicator->setColour (Label::textColourId, Colours::seagreen);
-        saveBtn->setEnabled (true); // enable after processing is done
 
         captureBtn->setButtonText ("Capture");
         captureBtn->setColour (TextButton::buttonColourId, Colour (0xff1976d2));
@@ -1707,6 +1849,140 @@ void QualityMonitorCanvas::updatePanelParameterEditors()
     content->spikePanel->bindThresholdParameters (
         getSelectedProbeParameter (QualityMonitorParams::kSpikeFailHzParam),
         getSelectedProbeParameter (QualityMonitorParams::kSpikeLowHzParam));
+}
+
+void QualityMonitorCanvas::updateSaveButtonState()
+{
+    if (saveBtn != nullptr)
+        saveBtn->setEnabled (processingDone);
+}
+
+void QualityMonitorCanvas::saveCurrentRunArtifacts()
+{
+    if (processor == nullptr || content == nullptr)
+        return;
+
+    processor->copyMetricsTo (localMetrics);
+    processingDone = isRunCompleted (localMetrics);
+    updateSaveButtonState();
+
+    if (! processingDone)
+        return;
+
+    auto restoreSelectedProbeView = [this]
+    {
+        if (content == nullptr || selectedProbe < 0 || selectedProbe >= localMetrics.size())
+            return;
+
+        const auto& selectedMetrics = localMetrics.getReference (selectedProbe);
+        content->rmsPanel->updateData (selectedMetrics);
+        content->specPanel->updateData (selectedMetrics);
+        content->snapPanel->updateData (selectedMetrics);
+        content->spikePanel->updateData (selectedMetrics);
+    };
+
+    const Time now = Time::getCurrentTime();
+    const String timestamp = now.formatted ("%Y-%m-%d_%H-%M-%S");
+    const File saveDir = CoreServices::getDefaultUserSaveDirectory();
+
+    const File exportDir = saveDir.getChildFile ("quality-monitor-" + timestamp);
+    Result result = exportDir.createDirectory();
+    if (result.failed())
+    {
+        AlertWindow::showMessageBoxAsync (AlertWindow::WarningIcon,
+                                          "Quality Monitor",
+                                          "Unable to create export directory:\n" + result.getErrorMessage());
+        return;
+    }
+
+    for (int i = 0; i < localMetrics.size(); ++i)
+    {
+        const auto& metrics = localMetrics.getReference (i);
+        const String prefix = metrics.streamName;
+
+        content->rmsPanel->updateData (metrics);
+        content->specPanel->updateData (metrics);
+        content->snapPanel->updateData (metrics);
+        content->spikePanel->updateData (metrics);
+
+        for (int panelIndex = 0; panelIndex < 4; ++panelIndex)
+        {
+            ZoomablePanel* panel = nullptr;
+            String fileStem;
+
+            switch (panelIndex)
+            {
+                case 0:
+                    panel = content->rmsPanel.get();
+                    fileStem = prefix + "_rms_heatmap";
+                    break;
+                case 1:
+                    panel = content->specPanel.get();
+                    fileStem = prefix + "_power_spectrum";
+                    break;
+                case 2:
+                    panel = content->snapPanel.get();
+                    fileStem = prefix + "_data_snapshot";
+                    break;
+                case 3:
+                    panel = content->spikePanel.get();
+                    fileStem = prefix + "_spike_rate";
+                    break;
+                default:
+                    break;
+            }
+
+            if (panel == nullptr)
+                continue;
+
+            result = writeComponentSnapshot (*panel,
+                                             panel->getPlotBoundsForSnapshot(),
+                                             exportDir.getNonexistentChildFile (fileStem, ".png"));
+            if (result.failed())
+            {
+                restoreSelectedProbeView();
+                AlertWindow::showMessageBoxAsync (AlertWindow::WarningIcon,
+                                                  "Quality Monitor",
+                                                  "Unable to save plot image:\n" + result.getErrorMessage());
+                return;
+            }
+        }
+    }
+
+    restoreSelectedProbeView();
+
+    DynamicObject root;
+    DynamicObject::Ptr runObject = new DynamicObject();
+    Array<var> probes;
+    probes.ensureStorageAllocated (localMetrics.size());
+    for (int i = 0; i < localMetrics.size(); ++i)
+        probes.add (probeMetricsToVar (localMetrics.getReference (i), processor->getProbeStreamId (i)));
+
+    root.setProperty ("generated_at", now.toISO8601 (true));
+    root.setProperty ("stream_count", probes.size());
+    root.setProperty ("analysis_duration_sec", durationCombo->getText());
+    root.setProperty ("streams", probes);
+
+    const File metricsFile = exportDir.getChildFile ("quality_metrics.json");
+    FileOutputStream outputStream (metricsFile);
+    if (! outputStream.openedOk())
+    {
+        AlertWindow::showMessageBoxAsync (AlertWindow::WarningIcon,
+                                          "Quality Monitor",
+                                          "Unable to write metrics JSON file:\n" + metricsFile.getFullPathName());
+        return;
+    }
+
+    root.writeAsJSON (outputStream,
+                      JSON::FormatOptions {}
+                          .withIndentLevel (4)
+                          .withSpacing (JSON::Spacing::multiLine)
+                          .withMaxDecimalPlaces (6));
+    outputStream.flush();
+
+    AlertWindow::showMessageBoxAsync (AlertWindow::InfoIcon,
+                                      "Quality Monitor",
+                                      "Saved plots and metrics to:\n" + exportDir.getFullPathName());
 }
 
 void QualityMonitorCanvas::selectProbe (int idx)

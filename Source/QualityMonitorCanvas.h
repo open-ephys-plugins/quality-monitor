@@ -69,6 +69,8 @@ public:
     // Restore full-probe view.
     void resetZoom();
 
+    Rectangle<int> getPlotBoundsForSnapshot() const { return lastPb; }
+
     // Cmd+wheel = zoom, Alt+wheel = pan, unmodified wheel = pass to Viewport.
     void mouseWheelMove  (const MouseEvent& e, const MouseWheelDetails& w) override;
     void mouseDoubleClick(const MouseEvent& e) override;
@@ -317,6 +319,8 @@ private:
     void layoutPanels();
     Parameter* getSelectedProbeParameter (const String& parameterName) const;
     void updatePanelParameterEditors();
+    void updateSaveButtonState();
+    void saveCurrentRunArtifacts();
 
     void startProcessing();
     void stopProcessing();
