@@ -121,7 +121,7 @@ void QualityMonitor::registerParameters()
                        kRmsThresholdParam,
                        "RMS Threshold",
                        "RMS threshold for flagging noisy channels",
-                       "μV",
+                       "uV",
                        20.0f,
                        1.0f,
                        100.0f,
@@ -143,8 +143,8 @@ void QualityMonitor::registerParameters()
                        "Spike-rate threshold that marks a channel as failing",
                        "Hz",
                        0.1f,
-                       0.0f,
-                       50.0f,
+                       0.1f,
+                       10.0f,
                        0.1f);
 
     addFloatParameter (Parameter::STREAM_SCOPE,
@@ -153,7 +153,7 @@ void QualityMonitor::registerParameters()
                        "Spike-rate threshold that marks a channel as low activity",
                        "Hz",
                        2.0f,
-                       0.0f,
+                       1.0f,
                        50.0f,
                        0.1f);
 }
@@ -179,9 +179,15 @@ void QualityMonitor::parameterValueChanged (Parameter* parameter)
     if (name.equalsIgnoreCase (kPowerlineHzParam))
     {
         const float hz = getFloatParameterValue (parameter, 60.0f);
-        std::lock_guard<std::mutex> lock (metricsMutex);
-        for (auto& metrics : probeMetrics)
-            metrics.powerlineHz = hz;
+        setPowerlineHz (hz);
+        // Refresh the canvas to update the power spectrum plot's vertical line and SNR calculations.
+        if (editor != nullptr && editor->isVisualizerEditor())
+        {
+            if (auto* canvas = dynamic_cast<VisualizerEditor*> (editor.get())->canvas.get())
+            {
+                MessageManager::callAsync ([canvas]() { canvas->refresh(); });
+            }
+        }
         return;
     }
 
@@ -879,11 +885,11 @@ void QualityMonitor::setPowerlineSNRThreshold (int pi, float snrThreshDb)
         probeMetrics.getReference (pi).powerlineSNRThresh = snrThreshDb;
 }
 
-void QualityMonitor::setPowerlineHz (int pi, float hz)
+void QualityMonitor::setPowerlineHz (float hz)
 {
     std::lock_guard<std::mutex> lock (metricsMutex);
-    if (pi < probeMetrics.size())
-        probeMetrics.getReference (pi).powerlineHz = hz;
+    for (auto& metrics : probeMetrics)
+        metrics.powerlineHz = hz;
 }
 
 uint16 QualityMonitor::getProbeStreamId (int probeIdx) const

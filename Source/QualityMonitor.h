@@ -196,7 +196,7 @@ public:
     void setRmsThreshold    (int probeIdx, float uvThresh);
     void setSpikeRateThresh (int probeIdx, float failHz, float lowHz);
     void setPowerlineSNRThreshold (int probeIdx, float snrThreshDb);
-    void setPowerlineHz     (int probeIdx, float hz);
+    void setPowerlineHz     (float hz);
 
     /** Returns the stream ID backing a probe sidebar entry. */
     uint16 getProbeStreamId (int probeIdx) const;
