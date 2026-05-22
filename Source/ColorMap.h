@@ -31,7 +31,7 @@ namespace ColourMaps
 Colour inferno (float t);
 Colour cividis (float t);
 Colour viridis (float t);
-Colour turbo   (float t);
+Colour turbo (float t);
 } // namespace ColourMaps
 
 #endif // COLORMAP_H_DEFINED

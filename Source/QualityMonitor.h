@@ -40,12 +40,12 @@
 namespace QualityMonitorParams
 {
 inline constexpr auto kMaskedChannelsParam = "selected_channels";
-inline constexpr auto kPowerlineHzParam    = "powerline_hz";
+inline constexpr auto kPowerlineHzParam = "powerline_hz";
 inline constexpr auto kPowerlineSNRThreshParam = "powerline_snr_thresh_db";
-inline constexpr auto kRmsThresholdParam   = "rms_threshold_uv";
-inline constexpr auto kSpikeFailHzParam    = "spike_fail_hz";
-inline constexpr auto kSpikeLowHzParam     = "spike_low_hz";
-}
+inline constexpr auto kRmsThresholdParam = "rms_threshold_uv";
+inline constexpr auto kSpikeFailHzParam = "spike_fail_hz";
+inline constexpr auto kSpikeLowHzParam = "spike_low_hz";
+} // namespace QualityMonitorParams
 
 // -- RAII wrapper: owns one r2c FFTW plan + its aligned buffers -------------------------------------------------
 class FFTProcessor
@@ -116,40 +116,40 @@ struct ProbeProcessingState
 
     // FFT ring buffer [numChannels * FFT_SIZE] and one shared FFTProcessor
     std::unique_ptr<FFTProcessor> fft;
-    std::vector<float>  fftRing;        // [numChannels * FFT_SIZE]
-    int                 fftRingPos  = 0;
-    int                 fftWinCount = 0;
-    std::vector<double> powerAccum;     // [numChannels * FFT_BINS]
+    std::vector<float> fftRing; // [numChannels * FFT_SIZE]
+    int fftRingPos = 0;
+    int fftWinCount = 0;
+    std::vector<double> powerAccum; // [numChannels * FFT_BINS]
 
     // Spike detection
-    std::vector<float>   spikeThreshV;    // adaptive 5× RMS, in raw V
-    std::vector<bool>    wasBelowThresh;
-    std::vector<int>     spikeCount;      // window spikes (reset each 200 ms window)
-    int                  spikeSampleCount = 0;
-    std::vector<int64_t> cumSpikeCount;   // run-total spikes per channel since acquisition start
-    int64_t              cumSpikeSamples  = 0; // run-total samples counted for spikes
-    bool                 spikeWarmupDone  = false; // skip first window (uncalibrated threshold)
+    std::vector<float> spikeThreshV; // adaptive 5× RMS, in raw V
+    std::vector<bool> wasBelowThresh;
+    std::vector<int> spikeCount; // window spikes (reset each 200 ms window)
+    int spikeSampleCount = 0;
+    std::vector<int64_t> cumSpikeCount; // run-total spikes per channel since acquisition start
+    int64_t cumSpikeSamples = 0; // run-total samples counted for spikes
+    bool spikeWarmupDone = false; // skip first window (uncalibrated threshold)
 
     // Snapshot ring buffer — audio-thread only, no lock needed
-    std::vector<float> snapshotRing;    // [numChannels * snapshotSamples]
+    std::vector<float> snapshotRing; // [numChannels * snapshotSamples]
     std::vector<uint8_t> snapshotSaturated; // [numChannels] latched once |signal| exceeds the snapshot saturation threshold
-    int                snapshotSamples = 3000; // = sampleRate * SNAPSHOT_WINDOW_MS / 1000
-    int                snapshotPos = 0; // next write position (wraps around)
+    int snapshotSamples = 3000; // = sampleRate * SNAPSHOT_WINDOW_MS / 1000
+    int snapshotPos = 0; // next write position (wraps around)
 
     // Duration tracking (audio-thread only, no lock needed)
-    int     rmsWindowSamples      = 6000;  // 200 ms at this stream's sample rate
-    int64_t totalSamplesAllowed   = 0;  // 0 = unlimited
+    int rmsWindowSamples = 6000; // 200 ms at this stream's sample rate
+    int64_t totalSamplesAllowed = 0; // 0 = unlimited
     int64_t totalSamplesProcessed = 0;
-    bool    processingDone        = false;
+    bool processingDone = false;
 
     // Pre-allocated scratch buffers — avoids heap allocation on the audio thread
-    std::vector<float>  scratchRms;        // size nCh
-    std::vector<float>  scratchLiveRates;  // size nCh
-    std::vector<float>  scratchLocalRates; // size nCh
-    std::vector<float>  scratchSpec;       // size nCh * FFT_BINS
-    std::vector<float>  scratchSurround;   // size 40 (±20 bin window)
-    std::vector<float>  scratchPlDb;       // size nCh — per-channel powerline band power (dB)
-    std::vector<float>  scratchHFDb;       // size nCh — per-channel 8–15 kHz mean power (dB)
+    std::vector<float> scratchRms; // size nCh
+    std::vector<float> scratchLiveRates; // size nCh
+    std::vector<float> scratchLocalRates; // size nCh
+    std::vector<float> scratchSpec; // size nCh * FFT_BINS
+    std::vector<float> scratchSurround; // size 40 (±20 bin window)
+    std::vector<float> scratchPlDb; // size nCh — per-channel powerline band power (dB)
+    std::vector<float> scratchHFDb; // size nCh — per-channel 8–15 kHz mean power (dB)
 
     /** Initialises all per-probe state for a new acquisition run.*/
     void allocate (int nCh, int windowSamples, int snapSamples);
@@ -189,14 +189,14 @@ public:
 		Visualizer plugins typically use this method to send data to the canvas for display purposes */
     void process (AudioBuffer<float>& buffer) override;
 
-	/** Thread-safe snapshot for the canvas timer. */
+    /** Thread-safe snapshot for the canvas timer. */
     void copyMetricsTo (Array<ProbeMetrics>& dest);
 
     /** Called from UI thread — brief lock, safe to call frequently. */
-    void setRmsThreshold    (int probeIdx, float uvThresh);
+    void setRmsThreshold (int probeIdx, float uvThresh);
     void setSpikeRateThresh (int probeIdx, float failHz, float lowHz);
     void setPowerlineSNRThreshold (int probeIdx, float snrThreshDb);
-    void setPowerlineHz     (float hz);
+    void setPowerlineHz (float hz);
 
     /** Returns the stream ID backing a probe sidebar entry. */
     uint16 getProbeStreamId (int probeIdx) const;
@@ -222,24 +222,23 @@ public:
     void setAutoStart (bool enabled);
 
     /** True while analysis is running (between startProcessing and allDone). */
-    bool isProcessingActive()   const { return processingHasStarted.load(); }
+    bool isProcessingActive() const { return processingHasStarted.load(); }
 
 private:
-
-    Array<ProbeMetrics>               probeMetrics;   // written audio / read UI
-    std::vector<ProbeProcessingState> procState;      // audio-thread only
-    std::mutex                        metricsMutex;
-    std::atomic<int>                  durationSeconds    { 30 };
-    std::atomic<bool>                 autoStartProcessing { true };
-    std::atomic<bool>                 processingHasStarted { false };
+    Array<ProbeMetrics> probeMetrics; // written audio / read UI
+    std::vector<ProbeProcessingState> procState; // audio-thread only
+    std::mutex metricsMutex;
+    std::atomic<int> durationSeconds { 30 };
+    std::atomic<bool> autoStartProcessing { true };
+    std::atomic<bool> processingHasStarted { false };
 
     std::vector<std::vector<int>> probeChannelIndices; // global buffer indices of DATA channels per stream
-    std::vector<uint16>           probeStreamIds;      // stream ID for each probe (for per-stream sample count)
-    int                           totalProbes = 0;
+    std::vector<uint16> probeStreamIds; // stream ID for each probe (for per-stream sample count)
+    int totalProbes = 0;
 
-    void finalizeRms     (int pi);
-    void finalizeFFT     (int pi);
-    void finalizeSpikes  (int pi);
+    void finalizeRms (int pi);
+    void finalizeFFT (int pi);
+    void finalizeSpikes (int pi);
     void captureSnapshot (int pi, AudioBuffer<float>& buf);
 
     /** Shared reset + start logic used by both startAcquisition and startProcessing. */

@@ -32,7 +32,7 @@ class PowerlineHzParameterEditor : public ParameterEditor,
 {
 public:
     PowerlineHzParameterEditor (Parameter* param) : ParameterEditor (param)
-    {  
+    {
         powerline50HzButton = new TextButton ("50 Hz", "Output to left channel only");
         powerline50HzButton->setClickingTogglesState (true);
         powerline50HzButton->setToggleState (false, dontSendNotification);
@@ -50,7 +50,7 @@ public:
         powerline60HzButton->setToggleState (true, dontSendNotification);
         addAndMakeVisible (powerlineButtonManager.get());
 
-        powerlineLabel = std::make_unique<Label>("Powerline Label", "Powerline Freq.");
+        powerlineLabel = std::make_unique<Label> ("Powerline Label", "Powerline Freq.");
         powerlineLabel->setFont (FontOptions ("Inter", "Regular", 13.5f));
         powerlineLabel->setJustificationType (Justification::centredLeft);
         addAndMakeVisible (powerlineLabel.get());

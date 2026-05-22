@@ -28,39 +28,45 @@
 
 // ── SIMD detection ────────────────────────────────────────────────────────────
 // Normalise MSVC /arch:AVX → SSE4.1 so the detection macro is consistent.
-#if defined (_MSC_VER) && defined (__AVX__) && ! defined (__SSE4_1__)
- #define __SSE4_1__ 1
+#if defined(_MSC_VER) && defined(__AVX__) && ! defined(__SSE4_1__)
+#define __SSE4_1__ 1
 #endif
 
-#if defined (__ARM_NEON) || defined (__ARM_NEON__)
- #include <arm_neon.h>
- #define QM_USE_NEON 1
+#if defined(__ARM_NEON) || defined(__ARM_NEON__)
+#include <arm_neon.h>
+#define QM_USE_NEON 1
 #else
- #define QM_USE_NEON 0
+#define QM_USE_NEON 0
 #endif
 
-#if defined (__SSE2__) || defined (_M_X64) || defined (_M_IX86)
- #include <emmintrin.h>
- #define QM_USE_SSE 1
+#if defined(__SSE2__) || defined(_M_X64) || defined(_M_IX86)
+#include <emmintrin.h>
+#define QM_USE_SSE 1
 #else
- #define QM_USE_SSE 0
+#define QM_USE_SSE 0
 #endif
 
-#if defined (__SSE4_1__)
- #include <smmintrin.h>
+#if defined(__SSE4_1__)
+#include <smmintrin.h>
 #endif
 
-#if defined (_MSC_VER)
- #include <intrin.h>
-#elif defined (__GNUC__) || defined (__clang__)
- #if defined (__x86_64__) || defined (__i386__)
-  #include <cpuid.h>
- #endif
+#if defined(_MSC_VER)
+#include <intrin.h>
+#elif defined(__GNUC__) || defined(__clang__)
+#if defined(__x86_64__) || defined(__i386__)
+#include <cpuid.h>
+#endif
 #endif
 
 // ── SIMD backend selection ────────────────────────────────────────────────────
 
-enum class HighPassSIMDType { None, SSE2, SSE4_1, NEON };
+enum class HighPassSIMDType
+{
+    None,
+    SSE2,
+    SSE4_1,
+    NEON
+};
 
 /** Detects and caches the best available SIMD backend at runtime. */
 inline HighPassSIMDType getAvailableHighPassSIMD()
@@ -76,21 +82,29 @@ inline HighPassSIMDType getAvailableHighPassSIMD()
     return result;
 #endif
 
-#if defined (__x86_64__) || defined (__i386__) || defined (_M_X64) || defined (_M_IX86)
+#if defined(__x86_64__) || defined(__i386__) || defined(_M_X64) || defined(_M_IX86)
     int cpuInfo[4] = {};
-   #if defined (_MSC_VER)
+#if defined(_MSC_VER)
     __cpuid (cpuInfo, 1);
-   #elif defined (__GNUC__) || defined (__clang__)
+#elif defined(__GNUC__) || defined(__clang__)
     __cpuid (1, cpuInfo[0], cpuInfo[1], cpuInfo[2], cpuInfo[3]);
-   #endif
+#endif
     const bool hasSSE4_1 = (cpuInfo[2] & (1 << 19)) != 0;
-    const bool hasSSE2   = (cpuInfo[3] & (1 << 26)) != 0;
-   #if defined (__SSE4_1__)
-    if (hasSSE4_1) { result = HighPassSIMDType::SSE4_1; return result; }
-   #endif
-   #if QM_USE_SSE
-    if (hasSSE2)   { result = HighPassSIMDType::SSE2;   return result; }
-   #endif
+    const bool hasSSE2 = (cpuInfo[3] & (1 << 26)) != 0;
+#if defined(__SSE4_1__)
+    if (hasSSE4_1)
+    {
+        result = HighPassSIMDType::SSE4_1;
+        return result;
+    }
+#endif
+#if QM_USE_SSE
+    if (hasSSE2)
+    {
+        result = HighPassSIMDType::SSE2;
+        return result;
+    }
+#endif
 #endif
 
     result = HighPassSIMDType::None;
@@ -105,24 +119,27 @@ inline HighPassSIMDType getAvailableHighPassSIMD()
     Output coefficients are for the Transposed Direct Form II structure.
 */
 inline void computeHighPassCoefficients (float sampleRate,
-                                         float& b0, float& b1, float& b2,
-                                         float& a1, float& a2)
+                                         float& b0,
+                                         float& b1,
+                                         float& b2,
+                                         float& a1,
+                                         float& a2)
 {
     constexpr float cutoffHz = 300.0f;
-    constexpr float Q        = 0.70710678f; // 1/sqrt(2)
-    constexpr float pi       = 3.14159265358979323846f;
+    constexpr float Q = 0.70710678f; // 1/sqrt(2)
+    constexpr float pi = 3.14159265358979323846f;
 
-    const float w0    = 2.0f * pi * cutoffHz / sampleRate;
+    const float w0 = 2.0f * pi * cutoffHz / sampleRate;
     const float cosW0 = std::cos (w0);
     const float sinW0 = std::sin (w0);
     const float alpha = sinW0 / (2.0f * Q);
 
-    const float rb0 =  (1.0f + cosW0) * 0.5f;
+    const float rb0 = (1.0f + cosW0) * 0.5f;
     const float rb1 = -(1.0f + cosW0);
-    const float rb2 =  (1.0f + cosW0) * 0.5f;
-    const float a0  =   1.0f + alpha;
-    const float ra1 =  -2.0f * cosW0;
-    const float ra2 =   1.0f - alpha;
+    const float rb2 = (1.0f + cosW0) * 0.5f;
+    const float a0 = 1.0f + alpha;
+    const float ra1 = -2.0f * cosW0;
+    const float ra2 = 1.0f - alpha;
 
     b0 = rb0 / a0;
     b1 = rb1 / a0;
@@ -137,14 +154,11 @@ inline void computeHighPassCoefficients (float sampleRate,
     Runs one channel through the TDF-II biquad, accumulating squared output
     into rmsSumSq and counting negative threshold crossings as spikes.
 */
-inline void processChannelScalar (const float* src, int N,
-                                   float b0, float b1, float b2, float a1, float a2,
-                                   float& z1, float& z2,
-                                   float thr, bool& prevBelow, int& spikes, double& rmsSumSq)
+inline void processChannelScalar (const float* src, int N, float b0, float b1, float b2, float a1, float a2, float& z1, float& z2, float thr, bool& prevBelow, int& spikes, double& rmsSumSq)
 {
     for (int i = 0; i < N; ++i)
     {
-        const float x   = src[i];
+        const float x = src[i];
         const float val = b0 * x + z1;
         z1 = b1 * x - a1 * val + z2;
         z2 = b2 * x - a2 * val;
@@ -165,11 +179,7 @@ inline void processChannelScalar (const float* src, int N,
     responsible for adding each lane's value to its corresponding double rmsSumSq.
     Spike detection remains scalar (sequential prevBelow dependency).
 */
-inline void processBlock4SSE (const float* d0, const float* d1,
-                               const float* d2, const float* d3,
-                               int N, float b0, float b1, float b2, float a1, float a2,
-                               float* z1arr, float* z2arr,
-                               const float* thr, bool* prevBelow, int* spikes, float* sqAcc)
+inline void processBlock4SSE (const float* d0, const float* d1, const float* d2, const float* d3, int N, float b0, float b1, float b2, float a1, float a2, float* z1arr, float* z2arr, const float* thr, bool* prevBelow, int* spikes, float* sqAcc)
 {
     const __m128 vb0 = _mm_set1_ps (b0);
     const __m128 vb1 = _mm_set1_ps (b1);
@@ -219,11 +229,7 @@ inline void processBlock4SSE (const float* d0, const float* d1,
     Processes 4 channels simultaneously using ARM NEON, with one channel per
     SIMD lane. Interface mirrors processBlock4SSE.
 */
-inline void processBlock4NEON (const float* d0, const float* d1,
-                                const float* d2, const float* d3,
-                                int N, float b0, float b1, float b2, float a1, float a2,
-                                float* z1arr, float* z2arr,
-                                const float* thr, bool* prevBelow, int* spikes, float* sqAcc)
+inline void processBlock4NEON (const float* d0, const float* d1, const float* d2, const float* d3, int N, float b0, float b1, float b2, float a1, float a2, float* z1arr, float* z2arr, const float* thr, bool* prevBelow, int* spikes, float* sqAcc)
 {
     const float32x4_t vb0 = vdupq_n_f32 (b0);
     const float32x4_t vb1 = vdupq_n_f32 (b1);

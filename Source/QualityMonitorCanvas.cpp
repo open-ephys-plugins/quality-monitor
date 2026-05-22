@@ -25,11 +25,11 @@
 
 #include "QualityMonitor.h"
 
-#include <array>
+#include "ColorMap.h"
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <numeric>
-#include "ColorMap.h"
 
 // ─── QCColours ───────────────────────────────────────────────────────────────
 
@@ -39,22 +39,25 @@ Colour statusCol (ProbeStatus s)
 {
     switch (s)
     {
-        case ProbeStatus::PASS: return Colour (0xff4caf50);
-        case ProbeStatus::FAIL: return Colour (0xfff44336);
-        default:                return Colours::grey;
+        case ProbeStatus::PASS:
+            return Colour (0xff4caf50);
+        case ProbeStatus::FAIL:
+            return Colour (0xfff44336);
+        default:
+            return Colours::grey;
     }
 }
 } // namespace QCColours
 
 // ─── Shared drawing helpers ───────────────────────────────────────────────────
 
-static constexpr int TITLE_H  = 22;
-static constexpr int META_H   = 20;
+static constexpr int TITLE_H = 22;
+static constexpr int META_H = 20;
 static constexpr int PLOT_PAD = 10;
-static constexpr int AXIS_L   = 36;   // left axis label width + tick mark length
-static constexpr int AXIS_B   = 30;   // bottom: tick labels (14 px) + axis title (14 px)
-static constexpr int CBAR_W   = 14;
-static constexpr int STRIP_W  = 48;   // per-channel live bar strip width
+static constexpr int AXIS_L = 36; // left axis label width + tick mark length
+static constexpr int AXIS_B = 30; // bottom: tick labels (14 px) + axis title (14 px)
+static constexpr int CBAR_W = 14;
+static constexpr int STRIP_W = 48; // per-channel live bar strip width
 static constexpr int PANEL_EDITOR_H = 18;
 static constexpr int PANEL_EDITOR_COL_GAP = 10;
 static constexpr int PANEL_RESET_SLOT_W = 34;
@@ -93,7 +96,7 @@ static Rectangle<int> getAlertBadgeBounds (Rectangle<int> rowBounds, int reserve
 }
 
 // Font helpers — typefaces sized dynamically by each caller
-static Font interRegular  (float size) { return Font (FontOptions ("Inter", "Regular",   size)); }
+static Font interRegular (float size) { return Font (FontOptions ("Inter", "Regular", size)); }
 static Font interSemiBold (float size) { return Font (FontOptions ("Inter", "Semi Bold", size)); }
 static Font firaCodeRegular (float size) { return Font (FontOptions ("Fira Code", "Regular", size)); }
 
@@ -101,9 +104,12 @@ static String probeStatusToString (ProbeStatus status)
 {
     switch (status)
     {
-        case ProbeStatus::PASS: return "pass";
-        case ProbeStatus::FAIL: return "fail";
-        default:                return "unknown";
+        case ProbeStatus::PASS:
+            return "pass";
+        case ProbeStatus::FAIL:
+            return "fail";
+        default:
+            return "unknown";
     }
 }
 
@@ -277,7 +283,7 @@ static BoundedValueParameterEditor* bindCompactParameterEditor (std::unique_ptr<
     return pEditor.get();
 }
 
-// Maps a pixel y coordinate to a channel index, based on the current view range and total height. 
+// Maps a pixel y coordinate to a channel index, based on the current view range and total height.
 // Channels are indexed in display order (highest at the top), not original order.
 static int channelForPixelRow (int y, int height, int viewChStart, int viewChEnd)
 {
@@ -294,10 +300,7 @@ static int channelForPixelRow (int y, int height, int viewChStart, int viewChEnd
 // channelOrder — maps display row → original channel number (from ProbeMetrics::channelOrder)
 // tickCol  — caller-supplied colour (use defaultText.withAlpha for secondary elements)
 // fontSize — caller-computed dynamic size
-static void drawChannelYTicks (Graphics& g, Rectangle<int> pb,
-                                int viewChStart, int viewChEnd,
-                                const std::vector<int>& channelOrder,
-                                Colour tickCol, float fontSize)
+static void drawChannelYTicks (Graphics& g, Rectangle<int> pb, int viewChStart, int viewChEnd, const std::vector<int>& channelOrder, Colour tickCol, float fontSize)
 {
     const int viewCh = viewChEnd - viewChStart;
     if (viewCh <= 0)
@@ -306,15 +309,15 @@ static void drawChannelYTicks (Graphics& g, Rectangle<int> pb,
     // Helper: pixel y for the centre of channel t's row
     auto chCentreY = [&] (int t) -> float
     {
-           const int rowFromTop = (viewChEnd - 1) - t;
-           return float (pb.getY())
+        const int rowFromTop = (viewChEnd - 1) - t;
+        return float (pb.getY())
                + (float (rowFromTop) + 0.5f) / float (viewCh) * float (pb.getHeight());
     };
 
     // Always show first and last; fit as many equally-spaced intermediate ticks
     // as the height allows (minimum 40 px apart in pixel space).
     const int first = viewChStart;
-    const int last  = viewChEnd - 1;
+    const int last = viewChEnd - 1;
 
     // How many intervals (gaps) can we fit?
     const int maxIntervals = std::max (1, pb.getHeight() / 40);
@@ -328,7 +331,7 @@ static void drawChannelYTicks (Graphics& g, Rectangle<int> pb,
     if (last > first)
     {
         // Drop the penultimate tick if it's too close to last
-        if (ticks.size() > 1 && last - ticks.back() < (interval/2))
+        if (ticks.size() > 1 && last - ticks.back() < (interval / 2))
             ticks.pop_back();
         ticks.push_back (last);
     }
@@ -338,7 +341,7 @@ static void drawChannelYTicks (Graphics& g, Rectangle<int> pb,
 
     for (int t : ticks)
     {
-        const float y   = chCentreY (t);
+        const float y = chCentreY (t);
         const int textY = jlimit (pb.getY(), pb.getBottom() - 10, int (y) - 5);
         const int label = (t >= 0 && t < (int) channelOrder.size()) ? channelOrder[t] : t;
         g.drawText (String (label), pb.getX() - AXIS_L, textY, AXIS_L - 6, 10, Justification::centredRight);
@@ -355,7 +358,7 @@ ZoomablePanel::ZoomablePanel()
     // SVG path data for the zoom-reset icon (zoom-cancel / zoom-reset from tabler-icons)
     static const String kResetZoomPaths =
         "M21 21l-6 -6 M3.268 12.043a7.017 7.017 0 0 0 6.634 4.957a7.012 7.012 0 0 0 7.043 -6.131a7 7 0 0 0 -5.314 -7.672a7.021 7.021 0 0 0 -8.241 4.403 M3 4v4h4";
-    
+
     Path iconPath;
     iconPath.addPath (Drawable::parseSVGPath (kResetZoomPaths));
 
@@ -363,7 +366,8 @@ ZoomablePanel::ZoomablePanel()
     resetZoomBtn->setShape (iconPath, true, true, false);
     resetZoomBtn->setTooltip ("Reset zoom");
     resetZoomBtn->setMouseCursor (MouseCursor::PointingHandCursor);
-    resetZoomBtn->onClick = [this] { resetZoom(); };
+    resetZoomBtn->onClick = [this]
+    { resetZoom(); };
     resetZoomBtn->setAlwaysOnTop (true);
     resetZoomBtn->setOutline (findColour (ThemeColours::defaultText), 1.5f);
     addAndMakeVisible (resetZoomBtn.get());
@@ -381,14 +385,14 @@ void ZoomablePanel::initViewRange (int channelCount)
     if (viewChEnd == 0 || viewChEnd > numCh)
     {
         viewChStart = 0;
-        viewChEnd   = numCh;
+        viewChEnd = numCh;
     }
 }
 
 void ZoomablePanel::setViewRange (int start, int end)
 {
     viewChStart = jlimit (0, std::max (0, numCh - MIN_ZOOM_CH), start);
-    viewChEnd   = jlimit (MIN_ZOOM_CH, numCh, end);
+    viewChEnd = jlimit (MIN_ZOOM_CH, numCh, end);
     if (viewChEnd - viewChStart < MIN_ZOOM_CH)
         viewChEnd = std::min (numCh, viewChStart + MIN_ZOOM_CH);
     updateResetButtonVisibility();
@@ -408,7 +412,7 @@ void ZoomablePanel::mouseDoubleClick (const MouseEvent& e)
 
 void ZoomablePanel::mouseWheelMove (const MouseEvent& e, const MouseWheelDetails& w)
 {
-    if (numCh == 0 || !lastPb.contains (e.getPosition()))
+    if (numCh == 0 || ! lastPb.contains (e.getPosition()))
     {
         Component::mouseWheelMove (e, w);
         return;
@@ -417,16 +421,23 @@ void ZoomablePanel::mouseWheelMove (const MouseEvent& e, const MouseWheelDetails
     if (e.mods.isCommandDown())
     {
         // Cmd + wheel → zoom around cursor
-        const int   viewCh   = viewChEnd - viewChStart;
-        const float fracY    = jlimit (0.0f, 1.0f,
-                               float (e.y - lastPb.getY()) / float (lastPb.getHeight()));
+        const int viewCh = viewChEnd - viewChStart;
+        const float fracY = jlimit (0.0f, 1.0f, float (e.y - lastPb.getY()) / float (lastPb.getHeight()));
         const float cursorCh = float (viewChStart) + fracY * float (viewCh);
-        const float factor   = w.deltaY < 0.0f ? 1.3f : 0.7f;
-        const int   newCount = jlimit (MIN_ZOOM_CH, numCh, int (float (viewCh) * factor));
+        const float factor = w.deltaY < 0.0f ? 1.3f : 0.7f;
+        const int newCount = jlimit (MIN_ZOOM_CH, numCh, int (float (viewCh) * factor));
         int newStart = int (cursorCh - fracY * float (newCount));
-        int newEnd   = newStart + newCount;
-        if (newStart < 0)     { newStart = 0;    newEnd = newCount; }
-        if (newEnd   > numCh) { newEnd   = numCh; newStart = numCh - newCount; }
+        int newEnd = newStart + newCount;
+        if (newStart < 0)
+        {
+            newStart = 0;
+            newEnd = newCount;
+        }
+        if (newEnd > numCh)
+        {
+            newEnd = numCh;
+            newStart = numCh - newCount;
+        }
         setViewRange (newStart, newEnd);
         return;
     }
@@ -438,8 +449,8 @@ void ZoomablePanel::mouseWheelMove (const MouseEvent& e, const MouseWheelDetails
         if (lastPb.getHeight() <= 0)
             return;
         // Scroll ~10 % of the visible range per wheel tick, direction matches scroll
-        const int step     = std::max (1, int (float (viewCh) * 0.10f));
-        const int delta    = w.deltaY > 0.0f ? -step : step;
+        const int step = std::max (1, int (float (viewCh) * 0.10f));
+        const int delta = w.deltaY > 0.0f ? -step : step;
         const int newStart = jlimit (0, numCh - viewCh, viewChStart + delta);
         setViewRange (newStart, newStart + viewCh);
         return;
@@ -510,14 +521,14 @@ void RmsHeatmapPanel::resized()
 
 void RmsHeatmapPanel::updateData (const ProbeMetrics& m)
 {
-    rmsUV               = m.rmsUV;
-    rmsHistory          = m.rmsHistory;
-    rmsHistoryFrames    = m.rmsHistoryFrames;
+    rmsUV = m.rmsUV;
+    rmsHistory = m.rmsHistory;
+    rmsHistoryFrames = m.rmsHistoryFrames;
     rmsHistoryMaxFrames = std::max (1, m.rmsHistoryMaxFrames);
-    durationSec         = std::max (1, m.analysisDurationSec);
-    threshUV            = m.rmsThresholdUV;
-    numHighRms          = m.numHighRmsChannels;
-    processingDone      = m.processingDone;
+    durationSec = std::max (1, m.analysisDurationSec);
+    threshUV = m.rmsThresholdUV;
+    numHighRms = m.numHighRmsChannels;
+    processingDone = m.processingDone;
 
     // maxRms from all accumulated frames (not just latest)
     maxRms = 1.0f;
@@ -543,11 +554,17 @@ void RmsHeatmapPanel::drawColourBar (Graphics& g, Rectangle<float> r)
     g.setFont (firaCodeRegular (11.0f));
     g.setColour (findColour (ThemeColours::defaultText).withAlpha (0.85f));
     g.drawText (String (100) + "μV",
-                int (r.getCentreX()) - 20, int (r.getY()) - 14,
-                40, 12, Justification::centred);
+                int (r.getCentreX()) - 20,
+                int (r.getY()) - 14,
+                40,
+                12,
+                Justification::centred);
     g.drawText (String (0) + "μV",
-                int (r.getCentreX()) - 20, int (r.getBottom()) + 3,
-                40, 12, Justification::centred);
+                int (r.getCentreX()) - 20,
+                int (r.getBottom()) + 3,
+                40,
+                12,
+                Justification::centred);
 }
 
 void RmsHeatmapPanel::paint (Graphics& g)
@@ -559,8 +576,8 @@ void RmsHeatmapPanel::paint (Graphics& g)
     g.drawRect (b, 1);
 
     const float titleSz = 16.0f;
-    const float metaSz  = 14.0f;
-    const float tickSz  =  11.0f;
+    const float metaSz = 14.0f;
+    const float tickSz = 11.0f;
     const Colour textCol = findColour (ThemeColours::defaultText);
     const Colour tickCol = textCol.withAlpha (0.8f);
 
@@ -576,8 +593,7 @@ void RmsHeatmapPanel::paint (Graphics& g)
     const auto cbarBounds = panelLayout.colourBarBounds.toFloat();
 
     if (numHighRms > 0 && ! panelLayout.badgeBounds.isEmpty())
-        drawBadge (g, panelLayout.badgeBounds, Colour (0xffc62828),
-                   String (numHighRms) + " ch above " + String (threshUV, 0) + " μV threshold");
+        drawBadge (g, panelLayout.badgeBounds, Colour (0xffc62828), String (numHighRms) + " ch above " + String (threshUV, 0) + " μV threshold");
 
     const int pw_i = pb.getWidth();
     const int ph_i = pb.getHeight();
@@ -601,17 +617,16 @@ void RmsHeatmapPanel::paint (Graphics& g)
         if (rmsHistoryFrames > 0)
         {
             const int filledPx = std::min (pw_i,
-                int (int64_t (rmsHistoryFrames) * int64_t (pw_i) / int64_t (rmsHistoryMaxFrames)));
+                                           int (int64_t (rmsHistoryFrames) * int64_t (pw_i) / int64_t (rmsHistoryMaxFrames)));
 
             for (int y = 0; y < ph_i; ++y)
             {
                 const int ch = channelForPixelRow (y, ph_i, viewChStart, viewChEnd);
                 for (int x = 0; x < filledPx; ++x)
                 {
-                    const int frame = std::min (rmsHistoryFrames - 1, std::max (0,
-                        int (int64_t (x) * int64_t (rmsHistoryMaxFrames) / int64_t (pw_i))));
+                    const int frame = std::min (rmsHistoryFrames - 1, std::max (0, int (int64_t (x) * int64_t (rmsHistoryMaxFrames) / int64_t (pw_i))));
                     const float rms = rmsHistory[frame * numCh + ch];
-                    const float t   = jlimit (0.0f, 1.0f, rms / 100.0f);
+                    const float t = jlimit (0.0f, 1.0f, rms / 100.0f);
                     bmd.setPixelColour (x, y, ColourMaps::inferno (t));
                 }
             }
@@ -632,10 +647,10 @@ void RmsHeatmapPanel::paint (Graphics& g)
             Image::BitmapData bmd (stripImg, Image::BitmapData::writeOnly);
             for (int y = 0; y < sh; ++y)
             {
-                const int   ch   = channelForPixelRow (y, sh, viewChStart, viewChEnd);
-                const float v    = jlimit (1e-6f, 100.0f, rmsUV[ch]);
-                const float t    = jlimit (0.0f, 1.0f, std::log10 (v) / 2.0f);
-                const int   barW = jlimit (0, sw, int (t * float (sw)));
+                const int ch = channelForPixelRow (y, sh, viewChStart, viewChEnd);
+                const float v = jlimit (1e-6f, 100.0f, rmsUV[ch]);
+                const float t = jlimit (0.0f, 1.0f, std::log10 (v) / 2.0f);
+                const int barW = jlimit (0, sw, int (t * float (sw)));
                 const Colour col = ColourMaps::inferno (t);
                 for (int x = 0; x < barW; ++x)
                     bmd.setPixelColour (x, y, col);
@@ -650,8 +665,8 @@ void RmsHeatmapPanel::paint (Graphics& g)
     if (! processingDone && rmsHistoryFrames > 0 && rmsHistoryMaxFrames > 0)
     {
         const float progX = float (pb.getX())
-                          + float (rmsHistoryFrames) / float (rmsHistoryMaxFrames)
-                          * float (pw_i);
+                            + float (rmsHistoryFrames) / float (rmsHistoryMaxFrames)
+                                  * float (pw_i);
         g.setColour (Colours::white.withAlpha (0.6f));
         g.drawVerticalLine (int (progX), float (pb.getY()), float (pb.getBottom()));
     }
@@ -662,8 +677,8 @@ void RmsHeatmapPanel::paint (Graphics& g)
     for (int i = 0; i <= 4; ++i)
     {
         const float frac = float (i) / 4.0f;
-        const float x    = float (pb.getX()) + frac * float (pw_i);
-        const int   sec  = int (frac * float (durationSec));
+        const float x = float (pb.getX()) + frac * float (pw_i);
+        const int sec = int (frac * float (durationSec));
         g.drawVerticalLine (int (x) - std::floor (frac), float (pb.getBottom()), float (pb.getBottom()) + 4.0f);
         g.drawText (String (sec), int (x) - 14, pb.getBottom() + 4, 28, 12, Justification::centred);
     }
@@ -720,19 +735,19 @@ void PowerSpectrumPanel::resized()
 
 void PowerSpectrumPanel::updateData (const ProbeMetrics& m)
 {
-    spectrum           = m.powerSpectrum;
-    sampleRate         = m.sampleRate;
-    powerlineHz        = m.powerlineHz;
+    spectrum = m.powerSpectrum;
+    sampleRate = m.sampleRate;
+    powerlineHz = m.powerlineHz;
     powerlineSNRThresh = m.powerlineSNRThresh;
-    numNoisyCh         = m.numNoisyChannels;
+    numNoisyCh = m.numNoisyChannels;
     channelPowerlineDb = m.channelPowerlineDb;
-    channelHFNoiseDb   = m.channelHFNoiseDb;
-    channelOrder       = m.channelOrder;
+    channelHFNoiseDb = m.channelHFNoiseDb;
+    channelOrder = m.channelOrder;
     initViewRange (m.numChannels);
 
     // Fixed dB range 0–100 for cross-probe comparability
-    gMinDb  = 0.0f;
-    gMaxDb  = 100.0f;
+    gMinDb = 0.0f;
+    gMaxDb = 100.0f;
     hasData = ! spectrum.empty();
 
     repaint();
@@ -750,11 +765,17 @@ void PowerSpectrumPanel::drawColourBar (Graphics& g, Rectangle<float> r)
     g.setFont (firaCodeRegular (11.0f));
     g.setColour (findColour (ThemeColours::defaultText).withAlpha (0.85f));
     g.drawText (String (int (gMaxDb)) + "dB",
-                int (r.getCentreX()) - 20, int (r.getY()) - 14,
-                40, 12, Justification::centred);
+                int (r.getCentreX()) - 20,
+                int (r.getY()) - 14,
+                40,
+                12,
+                Justification::centred);
     g.drawText (String (int (gMinDb)) + "dB",
-                int (r.getCentreX()) - 20, int (r.getBottom()) + 3,
-                40, 12, Justification::centred);
+                int (r.getCentreX()) - 20,
+                int (r.getBottom()) + 3,
+                40,
+                12,
+                Justification::centred);
 }
 
 void PowerSpectrumPanel::paint (Graphics& g)
@@ -768,8 +789,8 @@ void PowerSpectrumPanel::paint (Graphics& g)
 
     // Dynamic font sizes
     const float titleSz = 16.0f;
-    const float metaSz  = 14.0f;
-    const float tickSz  =  11.0f;
+    const float metaSz = 14.0f;
+    const float tickSz = 11.0f;
     const Colour textCol = findColour (ThemeColours::defaultText);
     const Colour tickCol = textCol.withAlpha (0.8f);
 
@@ -797,21 +818,24 @@ void PowerSpectrumPanel::paint (Graphics& g)
     if (viewCh_sp <= 0)
         return;
 
-    const float nyquist    = sampleRate / 2.0f;
-    const float dbRange    = gMaxDb - gMinDb;
-    const float hzPerBin   = sampleRate / float (FFT_SIZE);
+    const float nyquist = sampleRate / 2.0f;
+    const float dbRange = gMaxDb - gMinDb;
+    const float hzPerBin = sampleRate / float (FFT_SIZE);
     // Log-frequency axis: display from LOG_FREQ_MIN Hz up to Nyquist
     static constexpr float LOG_FREQ_MIN = 10.0f;
     const float logFMin = std::log10 (LOG_FREQ_MIN);
     const float logFMax = std::log10 (nyquist);
     // Helper: pixel x [0, pw_i) -> FFT bin index (log scale)
-    auto pixelToLogBin = [&] (int x) -> int {
+    auto pixelToLogBin = [&] (int x) -> int
+    {
         const float fhz = std::pow (10.0f, logFMin + float (x) / float (pw_i) * (logFMax - logFMin));
         return jlimit (1, FFT_BINS - 1, int (fhz / hzPerBin));
     };
     // Helper: frequency Hz -> pixel x offset relative to pb.getX() (log scale)
-    auto freqToLogPixelX = [&] (float hz) -> float {
-        if (hz <= 0.0f) return -1.0f;
+    auto freqToLogPixelX = [&] (float hz) -> float
+    {
+        if (hz <= 0.0f)
+            return -1.0f;
         return (std::log10 (hz) - logFMin) / (logFMax - logFMin) * float (pw_i);
     };
 
@@ -834,10 +858,10 @@ void PowerSpectrumPanel::paint (Graphics& g)
                 const float* row = spectrum.data() + c * FFT_BINS;
                 for (int x = 0; x < pw_i; ++x)
                 {
-                    const int   k    = pixelToLogBin (x);
-                    const float db   = row[k] > 0.0f ? 10.0f * std::log10 (row[k]) : gMinDb;
+                    const int k = pixelToLogBin (x);
+                    const float db = row[k] > 0.0f ? 10.0f * std::log10 (row[k]) : gMinDb;
                     const float tLin = jlimit (0.0f, 1.0f, (db - gMinDb) / dbRange);
-                    const float t    = std::log10 (1.0f + 9.0f * tLin); // log colour scale
+                    const float t = std::log10 (1.0f + 9.0f * tLin); // log colour scale
                     bmd.setPixelColour (x, y, ColourMaps::viridis (t));
                 }
             }
@@ -857,10 +881,10 @@ void PowerSpectrumPanel::paint (Graphics& g)
             Image::BitmapData bmd (stripImg, Image::BitmapData::writeOnly);
             for (int y = 0; y < sh; ++y)
             {
-                const int   ch   = channelForPixelRow (y, sh, viewChStart, viewChEnd);
-                const float v    = jlimit (1e-6f, 100.0f, std::max (0.0f, channelPowerlineDb[ch]));
-                const float t    = jlimit (0.0f, 1.0f, std::log10 (v) / 2.0f);
-                const int   barW = jlimit (0, sw, int (t * float (sw)));
+                const int ch = channelForPixelRow (y, sh, viewChStart, viewChEnd);
+                const float v = jlimit (1e-6f, 100.0f, std::max (0.0f, channelPowerlineDb[ch]));
+                const float t = jlimit (0.0f, 1.0f, std::log10 (v) / 2.0f);
+                const int barW = jlimit (0, sw, int (t * float (sw)));
                 const Colour col = ColourMaps::viridis (t);
                 for (int x = 0; x < barW; ++x)
                     bmd.setPixelColour (x, y, col);
@@ -882,10 +906,10 @@ void PowerSpectrumPanel::paint (Graphics& g)
             Image::BitmapData bmd (stripImg, Image::BitmapData::writeOnly);
             for (int y = 0; y < sh; ++y)
             {
-                const int   ch   = channelForPixelRow (y, sh, viewChStart, viewChEnd);
-                const float v    = jlimit (1e-6f, 100.0f, std::max (0.0f, channelHFNoiseDb[ch]));
-                const float t    = jlimit (0.0f, 1.0f, std::log10 (v) / 2.0f);
-                const int   barW = jlimit (0, sw, int (t * float (sw)));
+                const int ch = channelForPixelRow (y, sh, viewChStart, viewChEnd);
+                const float v = jlimit (1e-6f, 100.0f, std::max (0.0f, channelHFNoiseDb[ch]));
+                const float t = jlimit (0.0f, 1.0f, std::log10 (v) / 2.0f);
+                const int barW = jlimit (0, sw, int (t * float (sw)));
                 const Colour col = ColourMaps::viridis (t);
                 for (int x = 0; x < barW; ++x)
                     bmd.setPixelColour (x, y, col);
@@ -899,7 +923,7 @@ void PowerSpectrumPanel::paint (Graphics& g)
     // Strip labels below each overview column
     g.setColour (tickCol);
     g.setFont (firaCodeRegular (tickSz));
-    g.drawText (String (int (powerlineHz)) + " Hz",  plStripBounds.getX(), pb.getBottom() + 4, plStripBounds.getWidth(), 11, Justification::centred);
+    g.drawText (String (int (powerlineHz)) + " Hz", plStripBounds.getX(), pb.getBottom() + 4, plStripBounds.getWidth(), 11, Justification::centred);
     g.drawText ("8-15 kHz", hfStripBounds.getX(), pb.getBottom() + 4, hfStripBounds.getWidth(), 11, Justification::centred);
 
     // Powerline harmonic marker
@@ -921,9 +945,11 @@ void PowerSpectrumPanel::paint (Graphics& g)
     int lastLabelX = -100;
     for (float ft : { 10.0f, 20.0f, 50.0f, 100.0f, 200.0f, 500.0f, 1000.0f, 2000.0f, 5000.0f, 10000.0f, 20000.0f })
     {
-        if (ft < LOG_FREQ_MIN || ft > nyquist) continue;
+        if (ft < LOG_FREQ_MIN || ft > nyquist)
+            continue;
         const float px = freqToLogPixelX (ft);
-        if (px < 0.0f || px >= float (pw_i)) continue;
+        if (px < 0.0f || px >= float (pw_i))
+            continue;
         const int x = int (float (pb.getX()) + px);
         g.drawVerticalLine (x, float (pb.getBottom()), float (pb.getBottom()) + 4.0f);
         if (x - lastLabelX >= 28)
@@ -970,7 +996,8 @@ void DataSnapshotPanel::updateData (const ProbeMetrics& m)
         {
             const float d = row[s] - mean;
             sumSq += d * d;
-            if (row[s] != 0.0f) hasData = true;
+            if (row[s] != 0.0f)
+                hasData = true;
         }
         channelStdUV[c] = std::sqrt (sumSq / float (snapshotSamples));
     }
@@ -1016,8 +1043,8 @@ void DataSnapshotPanel::paint (Graphics& g)
 
     // Dynamic font sizes
     const float titleSz = 16.0f;
-    const float metaSz  = 14.0f;
-    const float tickSz  =  11.0f;
+    const float metaSz = 14.0f;
+    const float tickSz = 11.0f;
     const Colour textCol = findColour (ThemeColours::defaultText);
     const Colour tickCol = textCol.withAlpha (0.8f);
 
@@ -1037,8 +1064,7 @@ void DataSnapshotPanel::paint (Graphics& g)
     const auto cbar = panelLayout.colourBarBounds.toFloat();
 
     if (numSaturatedCh > 0 && ! panelLayout.badgeBounds.isEmpty())
-        drawBadge (g, panelLayout.badgeBounds, Colour (0xffe65100),
-                   String (numSaturatedCh) + " ch saturated above " + String (saturationThresholdUV, 0) + " μV");
+        drawBadge (g, panelLayout.badgeBounds, Colour (0xffe65100), String (numSaturatedCh) + " ch saturated above " + String (saturationThresholdUV, 0) + " μV");
 
     const int pw_i = pb.getWidth();
     const int ph_i = pb.getHeight();
@@ -1054,8 +1080,8 @@ void DataSnapshotPanel::paint (Graphics& g)
     g.drawRect (pb.expanded (1), 1);
 
     constexpr float minUV = -100.0f;
-    constexpr float maxUV =  100.0f;
-    const float range = maxUV - minUV;  // 200.0f
+    constexpr float maxUV = 100.0f;
+    const float range = maxUV - minUV; // 200.0f
 
     // --- Snapshot via BitmapData ---
     {
@@ -1072,8 +1098,8 @@ void DataSnapshotPanel::paint (Graphics& g)
                 const float* row = snapshot.data() + c * snapshotSamples;
                 for (int x = 0; x < pw_i; ++x)
                 {
-                    const int sStart = x       * snapshotSamples / pw_i;
-                    const int sEnd   = std::max (sStart + 1, (x + 1) * snapshotSamples / pw_i);
+                    const int sStart = x * snapshotSamples / pw_i;
+                    const int sEnd = std::max (sStart + 1, (x + 1) * snapshotSamples / pw_i);
                     float sum = 0.0f;
 
                     for (int s = sStart; s < sEnd && s < snapshotSamples; ++s)
@@ -1100,9 +1126,9 @@ void DataSnapshotPanel::paint (Graphics& g)
             Image::BitmapData bmd (stripImg, Image::BitmapData::writeOnly);
             for (int y = 0; y < sh; ++y)
             {
-                const int   ch   = channelForPixelRow (y, sh, viewChStart, viewChEnd);
-                const float t    = jlimit (0.0f, 1.0f, channelStdUV[ch] / 100.0f);
-                const int   barW = jlimit (0, sw, int (t * float (sw)));
+                const int ch = channelForPixelRow (y, sh, viewChStart, viewChEnd);
+                const float t = jlimit (0.0f, 1.0f, channelStdUV[ch] / 100.0f);
+                const int barW = jlimit (0, sw, int (t * float (sw)));
                 const Colour col = ColourMaps::cividis (t);
                 for (int x = 0; x < barW; ++x)
                     bmd.setPixelColour (x, y, col);
@@ -1121,12 +1147,18 @@ void DataSnapshotPanel::paint (Graphics& g)
     }
     g.setFont (firaCodeRegular (11.0f));
     g.setColour (findColour (ThemeColours::defaultText).withAlpha (0.85f));
-    g.drawText (String("+100") + "μV",
-                int (cbar.getCentreX()) - 20, int (cbar.getY()) - 14,
-                40, 12, Justification::centred);
-    g.drawText (String("-100") + "μV",
-                int (cbar.getCentreX()) - 20, int (cbar.getBottom()) + 3,
-                40, 12, Justification::centred);
+    g.drawText (String ("+100") + "μV",
+                int (cbar.getCentreX()) - 20,
+                int (cbar.getY()) - 14,
+                40,
+                12,
+                Justification::centred);
+    g.drawText (String ("-100") + "μV",
+                int (cbar.getCentreX()) - 20,
+                int (cbar.getBottom()) + 3,
+                40,
+                12,
+                Justification::centred);
 
     // Y axis: channel ticks
     drawChannelYTicks (g, pb, viewChStart, viewChEnd, channelOrder, tickCol, tickSz);
@@ -1137,8 +1169,8 @@ void DataSnapshotPanel::paint (Graphics& g)
     for (int i = 0; i <= 4; ++i)
     {
         float frac = float (i) / 4.0f;
-        float x    = float (pb.getX()) + frac * float (pb.getWidth());
-        int   samp = int (frac * float (snapshotSamples));
+        float x = float (pb.getX()) + frac * float (pb.getWidth());
+        int samp = int (frac * float (snapshotSamples));
         g.drawVerticalLine (int (x), float (pb.getBottom()), float (pb.getBottom()) + 4.0f);
         g.drawText (String (samp), int (x) - 14, pb.getBottom() + 4, 28, 12, Justification::centred);
     }
@@ -1176,15 +1208,15 @@ void SpikeRatePanel::resized()
     b.reduce (PLOT_PAD, PLOT_PAD);
 
     auto titleRow = b.removeFromTop (TITLE_H);
-        titleRow.removeFromRight (PANEL_RESET_SLOT_W);
+    titleRow.removeFromRight (PANEL_RESET_SLOT_W);
     newLayout.titleBounds = titleRow;
 
     auto controlRow = b.removeFromTop (META_H);
     const int editorReserveWidth = visibleControlCount > 0
-            ? visibleControlCount * PARAM_EDITOR_W
-                + std::max (0, visibleControlCount - 1) * PANEL_EDITOR_COL_GAP
-                + PANEL_CONTROL_RIGHT_PAD
-            : 0;
+                                       ? visibleControlCount * PARAM_EDITOR_W
+                                             + std::max (0, visibleControlCount - 1) * PANEL_EDITOR_COL_GAP
+                                             + PANEL_CONTROL_RIGHT_PAD
+                                       : 0;
 
     b.reduce (0, PLOT_PAD);
     b.removeFromBottom (AXIS_B);
@@ -1203,16 +1235,16 @@ void SpikeRatePanel::resized()
 
 void SpikeRatePanel::updateData (const ProbeMetrics& m)
 {
-    rateHz               = m.spikeRateHz;
-    spikeRateHistory     = m.spikeRateHistory;
-    historyFrames        = m.spikeRateHistoryFrames;
-    historyMaxFrames     = std::max (1, m.rmsHistoryMaxFrames);
-    durationSec          = std::max (1, m.analysisDurationSec);
-    processingDone       = m.processingDone;
-    spikeFailHz          = m.spikeRateFailHz;
-    spikeLowHz           = m.spikeRateLowHz;
-    numLowCh             = m.numLowSpikeChannels;
-    channelOrder         = m.channelOrder;
+    rateHz = m.spikeRateHz;
+    spikeRateHistory = m.spikeRateHistory;
+    historyFrames = m.spikeRateHistoryFrames;
+    historyMaxFrames = std::max (1, m.rmsHistoryMaxFrames);
+    durationSec = std::max (1, m.analysisDurationSec);
+    processingDone = m.processingDone;
+    spikeFailHz = m.spikeRateFailHz;
+    spikeLowHz = m.spikeRateLowHz;
+    numLowCh = m.numLowSpikeChannels;
+    channelOrder = m.channelOrder;
     initViewRange (m.numChannels);
     repaint();
 }
@@ -1228,11 +1260,17 @@ void SpikeRatePanel::drawColourBar (Graphics& g, Rectangle<float> r)
     g.setFont (firaCodeRegular (11.0f));
     g.setColour (findColour (ThemeColours::defaultText).withAlpha (0.85f));
     g.drawText ("100Hz",
-                int (r.getCentreX()) - 20, int (r.getY()) - 14,
-                40, 12, Justification::centred);
+                int (r.getCentreX()) - 20,
+                int (r.getY()) - 14,
+                40,
+                12,
+                Justification::centred);
     g.drawText ("0Hz",
-                int (r.getCentreX()) - 20, int (r.getBottom()) + 3,
-                40, 12, Justification::centred);
+                int (r.getCentreX()) - 20,
+                int (r.getBottom()) + 3,
+                40,
+                12,
+                Justification::centred);
 }
 
 void SpikeRatePanel::paint (Graphics& g)
@@ -1245,8 +1283,8 @@ void SpikeRatePanel::paint (Graphics& g)
     g.drawRect (b, 1);
 
     const float titleSz = 16.0f;
-    const float metaSz  = 14.0f;
-    const float tickSz  =  11.0f;
+    const float metaSz = 14.0f;
+    const float tickSz = 11.0f;
     const Colour textCol = findColour (ThemeColours::defaultText);
     const Colour tickCol = textCol.withAlpha (0.8f);
 
@@ -1262,8 +1300,7 @@ void SpikeRatePanel::paint (Graphics& g)
     const auto cbarBounds = panelLayout.colourBarBounds.toFloat();
 
     if (numLowCh > 0 && ! panelLayout.badgeBounds.isEmpty())
-        drawBadge (g, panelLayout.badgeBounds, Colour (0xffc62828),
-                   String (numLowCh) + " ch below " + String (spikeFailHz, 1) + " Hz threshold");
+        drawBadge (g, panelLayout.badgeBounds, Colour (0xffc62828), String (numLowCh) + " ch below " + String (spikeFailHz, 1) + " Hz threshold");
 
     const int pw_i = pb.getWidth();
     const int ph_i = pb.getHeight();
@@ -1285,16 +1322,15 @@ void SpikeRatePanel::paint (Graphics& g)
         {
             Image::BitmapData bmd (heatmap, Image::BitmapData::writeOnly);
             const int filledPx = std::min (pw_i,
-                int (int64_t (historyFrames) * int64_t (pw_i) / int64_t (historyMaxFrames)));
+                                           int (int64_t (historyFrames) * int64_t (pw_i) / int64_t (historyMaxFrames)));
             for (int y = 0; y < ph_i; ++y)
             {
                 const int ch = channelForPixelRow (y, ph_i, viewChStart, viewChEnd);
                 for (int x = 0; x < filledPx; ++x)
                 {
-                    const int   frame = std::min (historyFrames - 1, std::max (0,
-                        int (int64_t (x) * int64_t (historyMaxFrames) / int64_t (pw_i))));
+                    const int frame = std::min (historyFrames - 1, std::max (0, int (int64_t (x) * int64_t (historyMaxFrames) / int64_t (pw_i))));
                     const float hz = spikeRateHistory[frame * numCh + ch];
-                    const float t  = jlimit (0.0f, 1.0f, hz / 100.0f);
+                    const float t = jlimit (0.0f, 1.0f, hz / 100.0f);
                     bmd.setPixelColour (x, y, ColourMaps::turbo (t));
                 }
             }
@@ -1313,14 +1349,14 @@ void SpikeRatePanel::paint (Graphics& g)
             Image::BitmapData bmd (stripImg, Image::BitmapData::writeOnly);
             for (int y = 0; y < sh; ++y)
             {
-                const int   ch   = channelForPixelRow (y, sh, viewChStart, viewChEnd);
+                const int ch = channelForPixelRow (y, sh, viewChStart, viewChEnd);
                 const float rate = rateHz[ch];
-                const float v    = jlimit (1e-6f, 100.0f, rate);
-                const float t    = jlimit (0.0f, 1.0f, std::log10 (v) / 2.0f);
-                const int   barW = jlimit (0, sw, int (t * float (sw)));
-                const Colour col = rate < spikeFailHz ? Colour (0xfff44336)
-                                 : rate < spikeLowHz  ? Colour (0xffff9800)
-                                                      : Colour (0xff42a5f5);
+                const float v = jlimit (1e-6f, 100.0f, rate);
+                const float t = jlimit (0.0f, 1.0f, std::log10 (v) / 2.0f);
+                const int barW = jlimit (0, sw, int (t * float (sw)));
+                const Colour col = rate < spikeFailHz  ? Colour (0xfff44336)
+                                   : rate < spikeLowHz ? Colour (0xffff9800)
+                                                       : Colour (0xff42a5f5);
                 for (int x = 0; x < barW; ++x)
                     bmd.setPixelColour (x, y, col);
             }
@@ -1334,8 +1370,8 @@ void SpikeRatePanel::paint (Graphics& g)
     if (! processingDone && historyFrames > 0 && historyMaxFrames > 0)
     {
         const float progX = float (pb.getX())
-                          + float (historyFrames) / float (historyMaxFrames)
-                          * float (pw_i);
+                            + float (historyFrames) / float (historyMaxFrames)
+                                  * float (pw_i);
         g.setColour (Colours::white.withAlpha (0.6f));
         g.drawVerticalLine (int (progX), float (pb.getY()), float (pb.getBottom()));
     }
@@ -1346,8 +1382,8 @@ void SpikeRatePanel::paint (Graphics& g)
     for (int i = 0; i <= 4; ++i)
     {
         const float frac = float (i) / 4.0f;
-        const float x    = float (pb.getX()) + frac * float (pw_i);
-        const int   sec  = int (frac * float (durationSec));
+        const float x = float (pb.getX()) + frac * float (pw_i);
+        const int sec = int (frac * float (durationSec));
         g.drawVerticalLine (int (x) - int (std::floor (frac)), float (pb.getBottom()), float (pb.getBottom()) + 4.0f);
         g.drawText (String (sec), int (x) - 14, pb.getBottom() + 4, 28, 12, Justification::centred);
     }
@@ -1370,7 +1406,7 @@ ProbeListModel::ProbeListModel (QualityMonitorCanvas* c)
 void ProbeListModel::setMetrics (const Array<ProbeMetrics>& metrics, int selected)
 {
     localMetrics = metrics;
-    selectedIdx  = selected;
+    selectedIdx = selected;
 }
 
 int ProbeListModel::getNumRows()
@@ -1383,9 +1419,9 @@ void ProbeListModel::paintListBoxItem (int row, Graphics& g, int width, int heig
     if (row < 0 || row >= localMetrics.size())
         return;
 
-    const auto& m  = localMetrics[row];
-    auto         b  = Rectangle<int> (0, 0, width, height);
-    Colour       sc = m.status == ProbeStatus::UNKNOWN ? parent->findColour (ThemeColours::defaultFill) : QCColours::statusCol (m.status);
+    const auto& m = localMetrics[row];
+    auto b = Rectangle<int> (0, 0, width, height);
+    Colour sc = m.status == ProbeStatus::UNKNOWN ? parent->findColour (ThemeColours::defaultFill) : QCColours::statusCol (m.status);
 
     if (row % 2 == 0)
     {
@@ -1424,8 +1460,8 @@ void ProbeListModel::paintListBoxItem (int row, Graphics& g, int width, int heig
     const float dotSize = 9.0f;
     const float totalDotsWidth = dotSize * float (plotStatuses.size());
     const float gap = plotStatuses.size() > 1
-        ? (indicatorArea.getWidth() - totalDotsWidth) / float (plotStatuses.size() - 1)
-        : 0.0f;
+                          ? (indicatorArea.getWidth() - totalDotsWidth) / float (plotStatuses.size() - 1)
+                          : 0.0f;
     float dotX = indicatorArea.getX();
     const float dotY = indicatorArea.getCentreY() - dotSize * 0.5f;
     for (ProbeStatus plotStatus : plotStatuses)
@@ -1445,9 +1481,9 @@ void ProbeListModel::selectedRowsChanged (int lastRowSelected)
 
 ContentComponent::ContentComponent()
 {
-    rmsPanel   = std::make_unique<RmsHeatmapPanel>();
-    specPanel  = std::make_unique<PowerSpectrumPanel>();
-    snapPanel  = std::make_unique<DataSnapshotPanel>();
+    rmsPanel = std::make_unique<RmsHeatmapPanel>();
+    specPanel = std::make_unique<PowerSpectrumPanel>();
+    snapPanel = std::make_unique<DataSnapshotPanel>();
     spikePanel = std::make_unique<SpikeRatePanel>();
     addAndMakeVisible (rmsPanel.get());
     addAndMakeVisible (specPanel.get());
@@ -1469,7 +1505,7 @@ void ContentComponent::resized()
         case PanelLayout::Grid2x2:
         {
             auto top = b.removeFromTop (b.getHeight() / 2);
-            rmsPanel->setBounds  (top.removeFromLeft (top.getWidth() / 2));
+            rmsPanel->setBounds (top.removeFromLeft (top.getWidth() / 2));
             specPanel->setBounds (top);
             snapPanel->setBounds (b.removeFromLeft (b.getWidth() / 2));
             spikePanel->setBounds (b);
@@ -1478,18 +1514,18 @@ void ContentComponent::resized()
         case PanelLayout::Stack4x1:
         {
             const int h = b.getHeight() / 4;
-            rmsPanel->setBounds   (b.removeFromTop (h));
-            specPanel->setBounds  (b.removeFromTop (h));
-            snapPanel->setBounds  (b.removeFromTop (h));
+            rmsPanel->setBounds (b.removeFromTop (h));
+            specPanel->setBounds (b.removeFromTop (h));
+            snapPanel->setBounds (b.removeFromTop (h));
             spikePanel->setBounds (b);
             break;
         }
         case PanelLayout::Stack1x4:
         {
             const int w = b.getWidth() / 4;
-            rmsPanel->setBounds   (b.removeFromLeft (w));
-            specPanel->setBounds  (b.removeFromLeft (w));
-            snapPanel->setBounds  (b.removeFromLeft (w));
+            rmsPanel->setBounds (b.removeFromLeft (w));
+            specPanel->setBounds (b.removeFromLeft (w));
+            snapPanel->setBounds (b.removeFromLeft (w));
             spikePanel->setBounds (b);
             break;
         }
@@ -1501,7 +1537,11 @@ void ContentComponent::resized()
 class LayoutButton : public Button
 {
 public:
-    enum class Style { Fill, Stroke };
+    enum class Style
+    {
+        Fill,
+        Stroke
+    };
 
     LayoutButton (const String& name, Path p)
         : Button (name), path (std::move (p))
@@ -1527,9 +1567,9 @@ public:
         g.drawRoundedRectangle (iconBounds, 3.0f, 1.0f);
         g.strokePath (path, PathStrokeType (1.0f), t);
     }
-    
+
 private:
-    Path  path;
+    Path path;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (LayoutButton)
 };
@@ -1550,8 +1590,9 @@ QualityMonitorCanvas::QualityMonitorCanvas (QualityMonitor* proc)
     : processor (proc)
 {
     // Probe list sidebar
-    probeListModel = std::make_unique<ProbeListModel>(this);
-    probeListModel->onProbeSelected = [this] (int idx) { selectProbe (idx); };
+    probeListModel = std::make_unique<ProbeListModel> (this);
+    probeListModel->onProbeSelected = [this] (int idx)
+    { selectProbe (idx); };
 
     probeListBox = std::make_unique<ListBox> ("ProbeList", probeListModel.get());
     probeListBox->setRowHeight (52);
@@ -1562,7 +1603,7 @@ QualityMonitorCanvas::QualityMonitorCanvas (QualityMonitor* proc)
     addAndMakeVisible (probeListBox.get());
 
     // Scrollable content with four panels
-    content  = std::make_unique<ContentComponent>();
+    content = std::make_unique<ContentComponent>();
     viewport = std::make_unique<Viewport>();
     viewport->setViewedComponent (content.get(), false);
     viewport->setScrollBarsShown (true, true);
@@ -1577,8 +1618,9 @@ QualityMonitorCanvas::QualityMonitorCanvas (QualityMonitor* proc)
     durationCombo->setSelectedId (2);
     durationCombo->onChange = [this]
     {
-        const int id  = durationCombo->getSelectedId();
-        const int sec = (id == 1) ? 10 : (id == 3) ? 60 : 30;
+        const int id = durationCombo->getSelectedId();
+        const int sec = (id == 1) ? 10 : (id == 3) ? 60
+                                                   : 30;
         processor->setDurationSeconds (sec);
     };
     processor->setDurationSeconds (30); // match default selection
@@ -1625,7 +1667,8 @@ QualityMonitorCanvas::QualityMonitorCanvas (QualityMonitor* proc)
 
     // Layout toggle buttons
     auto makeLayoutBtn = [&] (std::unique_ptr<Button>& btn,
-                              const String& name, const char* pathD)
+                              const String& name,
+                              const char* pathD)
     {
         auto lb = std::make_unique<LayoutButton> (
             name, Drawable::parseSVGPath (pathD));
@@ -1634,9 +1677,9 @@ QualityMonitorCanvas::QualityMonitorCanvas (QualityMonitor* proc)
         addAndMakeVisible (btn.get());
     };
 
-    makeLayoutBtn (layoutGridBtn,   "Grid 2x2",       PATH_D_GRID);
+    makeLayoutBtn (layoutGridBtn, "Grid 2x2", PATH_D_GRID);
     makeLayoutBtn (layoutHStackBtn, "Horizontal 4x1", PATH_D_HSTACK);
-    makeLayoutBtn (layoutVStackBtn, "Vertical 1x4",   PATH_D_VSTACK);
+    makeLayoutBtn (layoutVStackBtn, "Vertical 1x4", PATH_D_VSTACK);
 
     // Default: grid selected
     layoutGridBtn->setToggleState (true, dontSendNotification);
@@ -1645,7 +1688,7 @@ QualityMonitorCanvas::QualityMonitorCanvas (QualityMonitor* proc)
     {
         content->setLayout (ContentComponent::PanelLayout::Grid2x2);
         layoutPanels();
-        layoutGridBtn->setToggleState   (true,  dontSendNotification);
+        layoutGridBtn->setToggleState (true, dontSendNotification);
         layoutHStackBtn->setToggleState (false, dontSendNotification);
         layoutVStackBtn->setToggleState (false, dontSendNotification);
     };
@@ -1653,17 +1696,17 @@ QualityMonitorCanvas::QualityMonitorCanvas (QualityMonitor* proc)
     {
         content->setLayout (ContentComponent::PanelLayout::Stack4x1);
         layoutPanels();
-        layoutGridBtn->setToggleState   (false, dontSendNotification);
-        layoutHStackBtn->setToggleState (true,  dontSendNotification);
+        layoutGridBtn->setToggleState (false, dontSendNotification);
+        layoutHStackBtn->setToggleState (true, dontSendNotification);
         layoutVStackBtn->setToggleState (false, dontSendNotification);
     };
     layoutVStackBtn->onClick = [this]
     {
         content->setLayout (ContentComponent::PanelLayout::Stack1x4);
         layoutPanels();
-        layoutGridBtn->setToggleState   (false, dontSendNotification);
+        layoutGridBtn->setToggleState (false, dontSendNotification);
         layoutHStackBtn->setToggleState (false, dontSendNotification);
-        layoutVStackBtn->setToggleState (true,  dontSendNotification);
+        layoutVStackBtn->setToggleState (true, dontSendNotification);
     };
 
     statusIndicator = std::make_unique<Label>();
@@ -1719,7 +1762,7 @@ void QualityMonitorCanvas::beginAnimation()
         captureBtn->setColour (TextButton::buttonColourId, Colour (0xffd32f2f));
         captureBtn->setTooltip ("Stop the current analysis run");
         captureBtn->setEnabled (true);
-        
+
         durationCombo->setEnabled (false);
     }
     else
@@ -2019,7 +2062,7 @@ void QualityMonitorCanvas::layoutPanels()
     hdr.removeFromRight (10);
     {
         const int btnSz = hdr.getHeight();
-        layoutVStackBtn->setBounds   (hdr.removeFromRight (btnSz));
+        layoutVStackBtn->setBounds (hdr.removeFromRight (btnSz));
         hdr.removeFromRight (5);
         layoutHStackBtn->setBounds (hdr.removeFromRight (btnSz));
         hdr.removeFromRight (5);
@@ -2042,15 +2085,15 @@ void QualityMonitorCanvas::layoutPanels()
     switch (content->currentLayout)
     {
         case ContentComponent::PanelLayout::Stack1x4:
-            cw = std::max (b.getWidth(),  4 * ContentComponent::MIN_PANEL_W);
+            cw = std::max (b.getWidth(), 4 * ContentComponent::MIN_PANEL_W);
             ch = std::max (b.getHeight(), ContentComponent::MIN_PANEL_H);
             break;
         case ContentComponent::PanelLayout::Stack4x1:
-            cw = std::max (b.getWidth(),  ContentComponent::MIN_PANEL_W);
+            cw = std::max (b.getWidth(), ContentComponent::MIN_PANEL_W);
             ch = std::max (b.getHeight(), 4 * ContentComponent::MIN_PANEL_H);
             break;
         default: // Grid2x2
-            cw = std::max (b.getWidth(),  2 * ContentComponent::MIN_PANEL_W);
+            cw = std::max (b.getWidth(), 2 * ContentComponent::MIN_PANEL_W);
             ch = std::max (b.getHeight(), 2 * ContentComponent::MIN_PANEL_H);
             break;
     }

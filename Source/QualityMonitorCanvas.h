@@ -24,8 +24,8 @@
 #ifndef QUALITYMONITORCANVAS_H_DEFINED
 #define QUALITYMONITORCANVAS_H_DEFINED
 
-#include "ProbeMetrics.h"
 #include "ColorMap.h"
+#include "ProbeMetrics.h"
 #include <AllLookAndFeels.h>
 #include <UIUtilitiesHeaders.h>
 #include <VisualizerWindowHeaders.h>
@@ -72,17 +72,17 @@ public:
     Rectangle<int> getPlotBoundsForSnapshot() const { return lastPb; }
 
     // Cmd+wheel = zoom, Alt+wheel = pan, unmodified wheel = pass to Viewport.
-    void mouseWheelMove  (const MouseEvent& e, const MouseWheelDetails& w) override;
-    void mouseDoubleClick(const MouseEvent& e) override;
+    void mouseWheelMove (const MouseEvent& e, const MouseWheelDetails& w) override;
+    void mouseDoubleClick (const MouseEvent& e) override;
 
     // Updates the outline colour of the reset-zoom button when the theme changes.
     void colourChanged() override;
 
 protected:
-    int numCh       = 0;
+    int numCh = 0;
     int viewChStart = 0;
-    int viewChEnd   = 0;
-    Rectangle<int> lastPb;   // cached plot-area bounds from most recent paint()
+    int viewChEnd = 0;
+    Rectangle<int> lastPb; // cached plot-area bounds from most recent paint()
     std::vector<int> channelOrder; // displayRow → original channel number (set by updateData)
     Rectangle<int> getHeaderControlBounds (int width, int columnIndex = 0, int totalColumns = 1, int rowHeight = 18, int columnGap = 6) const;
     void updateResetButtonBounds();
@@ -107,12 +107,12 @@ public:
 private:
     std::vector<float> rmsUV;
     std::vector<float> rmsHistory;
-    int rmsHistoryFrames    = 0;
+    int rmsHistoryFrames = 0;
     int rmsHistoryMaxFrames = 150;
-    int durationSec         = 30;
-    float threshUV  = 20.0f;
-    int numHighRms  = 0;
-    float maxRms    = 1.0f;
+    int durationSec = 30;
+    float threshUV = 20.0f;
+    int numHighRms = 0;
+    float maxRms = 1.0f;
     bool processingDone = false;
     PanelLayoutCache panelLayout;
     std::unique_ptr<BoundedValueParameterEditor> thresholdEditor;
@@ -134,15 +134,15 @@ public:
 
 private:
     std::vector<float> spectrum;
-    std::vector<float> channelPowerlineDb;  // per-channel powerline band power (dB), copied from ProbeMetrics
-    std::vector<float> channelHFNoiseDb;    // per-channel 8–15 kHz mean power (dB), copied from ProbeMetrics
+    std::vector<float> channelPowerlineDb; // per-channel powerline band power (dB), copied from ProbeMetrics
+    std::vector<float> channelHFNoiseDb; // per-channel 8–15 kHz mean power (dB), copied from ProbeMetrics
     float sampleRate = 30000.0f;
     float powerlineHz = 60.0f;
     float powerlineSNRThresh = 10.0f;
     int numNoisyCh = 0;
     float gMinDb = -120.0f;
-    float gMaxDb =    0.0f;
-    bool  hasData = false;
+    float gMaxDb = 0.0f;
+    bool hasData = false;
     PanelLayoutCache panelLayout;
     std::unique_ptr<BoundedValueParameterEditor> noiseThresholdEditor;
     void drawColourBar (Graphics& g, Rectangle<float> r);
@@ -163,10 +163,10 @@ public:
 private:
     std::vector<float> snapshot;
     std::vector<float> channelStdUV;
-    int   snapshotSamples = 3000;
-    int   numSaturatedCh = 0;
+    int snapshotSamples = 3000;
+    int numSaturatedCh = 0;
     float saturationThresholdUV = SNAPSHOT_SATURATION_THRESHOLD_UV;
-    bool  hasData = false;
+    bool hasData = false;
     PanelLayoutCache panelLayout;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (DataSnapshotPanel)
@@ -184,14 +184,14 @@ public:
     void resized() override;
 
 private:
-    std::vector<float> rateHz;              // average rate per channel (overview strip)
-    std::vector<float> spikeRateHistory;    // [historyMaxFrames * numChannels], Hz (heatmap)
-    int historyFrames    = 0;
+    std::vector<float> rateHz; // average rate per channel (overview strip)
+    std::vector<float> spikeRateHistory; // [historyMaxFrames * numChannels], Hz (heatmap)
+    int historyFrames = 0;
     int historyMaxFrames = 150;
-    int durationSec      = 30;
-    bool processingDone  = false;
+    int durationSec = 30;
+    bool processingDone = false;
     float spikeFailHz = 0.1f;
-    float spikeLowHz  = 2.0f;
+    float spikeLowHz = 2.0f;
     int numLowCh = 0;
     PanelLayoutCache panelLayout;
     std::unique_ptr<BoundedValueParameterEditor> failThresholdEditor;
@@ -206,7 +206,7 @@ private:
 class ProbeListModel : public ListBoxModel
 {
 public:
-    ProbeListModel(QualityMonitorCanvas* parent);
+    ProbeListModel (QualityMonitorCanvas* parent);
 
     void setMetrics (const Array<ProbeMetrics>& metrics, int selected);
 
@@ -231,14 +231,19 @@ private:
 class ContentComponent : public Component
 {
 public:
-    enum class PanelLayout { Grid2x2, Stack4x1, Stack1x4 };
+    enum class PanelLayout
+    {
+        Grid2x2,
+        Stack4x1,
+        Stack1x4
+    };
 
     ContentComponent();
 
-    std::unique_ptr<RmsHeatmapPanel>    rmsPanel;
+    std::unique_ptr<RmsHeatmapPanel> rmsPanel;
     std::unique_ptr<PowerSpectrumPanel> specPanel;
-    std::unique_ptr<DataSnapshotPanel>  snapPanel;
-    std::unique_ptr<SpikeRatePanel>     spikePanel;
+    std::unique_ptr<DataSnapshotPanel> snapPanel;
+    std::unique_ptr<SpikeRatePanel> spikePanel;
 
     static constexpr int MIN_PANEL_W = 600;
     static constexpr int MIN_PANEL_H = 400;
@@ -291,29 +296,29 @@ private:
 
     // Sidebar — JUCE ListBox
     std::unique_ptr<ProbeListModel> probeListModel;
-    std::unique_ptr<ListBox>        probeListBox;
+    std::unique_ptr<ListBox> probeListBox;
 
     // Scrollable content area
-    std::unique_ptr<Viewport>         viewport;
+    std::unique_ptr<Viewport> viewport;
     std::unique_ptr<ContentComponent> content;
 
     // Header controls
-    std::unique_ptr<Label>      durationLabel;
-    std::unique_ptr<ComboBox>   durationCombo;
+    std::unique_ptr<Label> durationLabel;
+    std::unique_ptr<ComboBox> durationCombo;
     std::unique_ptr<ToggleButton> autoStartBtn;
     std::unique_ptr<TextButton> captureBtn;
     std::unique_ptr<TextButton> saveBtn;
     std::unique_ptr<Button> layoutGridBtn;
     std::unique_ptr<Button> layoutHStackBtn;
     std::unique_ptr<Button> layoutVStackBtn;
-    std::unique_ptr<Label>      statusIndicator;
+    std::unique_ptr<Label> statusIndicator;
 
-    bool acquisitionActive  = false;
-    bool processingDone    = false;
-    int  snapRefreshCounter = 0;   // throttle DataSnapshotPanel to 1 Hz
+    bool acquisitionActive = false;
+    bool processingDone = false;
+    int snapRefreshCounter = 0; // throttle DataSnapshotPanel to 1 Hz
 
     static constexpr int SIDEBAR_W = 240;
-    static constexpr int HEADER_H  = 36;
+    static constexpr int HEADER_H = 36;
 
     void selectProbe (int idx);
     void layoutPanels();

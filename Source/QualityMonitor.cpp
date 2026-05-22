@@ -39,48 +39,47 @@ float getFloatParameterValue (Parameter* parameter, float fallback)
 
     return fallback;
 }
-}
+} // namespace
 
 // ── ProbeProcessingState::allocate() ─────────────────────────────────────────
 
 void ProbeProcessingState::allocate (int nCh, int windowSamples, int snapSamples)
 {
     rmsWindowSamples = windowSamples;
-    rmsSumSq.assign     (nCh, 0.0);
-    rmsSampleCount  = 0;
+    rmsSumSq.assign (nCh, 0.0);
+    rmsSampleCount = 0;
 
     fft = std::make_unique<FFTProcessor> (FFT_SIZE);
-    fftRing.assign      (nCh * FFT_SIZE, 0.0f);
-    fftRingPos      = 0;
-    fftWinCount     = 0;
-    powerAccum.assign   (nCh * FFT_BINS, 0.0);
+    fftRing.assign (nCh * FFT_SIZE, 0.0f);
+    fftRingPos = 0;
+    fftWinCount = 0;
+    powerAccum.assign (nCh * FFT_BINS, 0.0);
 
-    spikeThreshV.assign  (nCh, 100e-6f); // 100 µV bootstrap
+    spikeThreshV.assign (nCh, 100e-6f); // 100 µV bootstrap
     wasBelowThresh.assign (nCh, true);
-    spikeCount.assign    (nCh, 0);
+    spikeCount.assign (nCh, 0);
     spikeSampleCount = 0;
     cumSpikeCount.assign (nCh, 0LL);
-    cumSpikeSamples  = 0;
-    spikeWarmupDone  = false;
+    cumSpikeSamples = 0;
+    spikeWarmupDone = false;
 
-    snapshotRing.assign     (nCh * snapSamples, 0.0f);
+    snapshotRing.assign (nCh * snapSamples, 0.0f);
     snapshotSaturated.assign (nCh, 0);
     snapshotSamples = snapSamples;
-    snapshotPos     = 0;
+    snapshotPos = 0;
 
-    totalSamplesAllowed   = 0;
+    totalSamplesAllowed = 0;
     totalSamplesProcessed = 0;
-    processingDone        = false;
+    processingDone = false;
 
-    scratchRms.resize        (nCh);
-    scratchLiveRates.resize  (nCh);
+    scratchRms.resize (nCh);
+    scratchLiveRates.resize (nCh);
     scratchLocalRates.resize (nCh);
-    scratchSpec.resize       (nCh * FFT_BINS);
-    scratchSurround.resize   (40);
-    scratchPlDb.resize       (nCh);
-    scratchHFDb.resize       (nCh);
+    scratchSpec.resize (nCh * FFT_BINS);
+    scratchSurround.resize (40);
+    scratchPlDb.resize (nCh);
+    scratchHFDb.resize (nCh);
 }
-
 
 // ── QualityMonitor ─────────────────────────────────────────────────────────
 
@@ -171,7 +170,8 @@ void QualityMonitor::parameterValueChanged (Parameter* parameter)
 
         if (editor != nullptr)
         {
-            MessageManager::callAsync ([ed = editor.get()]() { ed->updateVisualizer(); });
+            MessageManager::callAsync ([ed = editor.get()]()
+                                       { ed->updateVisualizer(); });
         }
         return;
     }
@@ -185,7 +185,8 @@ void QualityMonitor::parameterValueChanged (Parameter* parameter)
         {
             if (auto* canvas = dynamic_cast<VisualizerEditor*> (editor.get())->canvas.get())
             {
-                MessageManager::callAsync ([canvas]() { canvas->refresh(); });
+                MessageManager::callAsync ([canvas]()
+                                           { canvas->refresh(); });
             }
         }
         return;
@@ -227,7 +228,7 @@ void QualityMonitor::parameterValueChanged (Parameter* parameter)
             return;
 
         const float failHz = getFloatParameterValue (stream->getParameter (kSpikeFailHzParam), 0.1f);
-        const float lowHz  = getFloatParameterValue (stream->getParameter (kSpikeLowHzParam), 2.0f);
+        const float lowHz = getFloatParameterValue (stream->getParameter (kSpikeLowHzParam), 2.0f);
         setSpikeRateThresh (probeIdx, failHz, std::max (failHz, lowHz));
     }
 }
@@ -237,7 +238,7 @@ void QualityMonitor::updateSettings()
     // Enumerate all data streams; keep only those with at least one ELECTRODE (DATA) channel
     Array<const DataStream*> dataStreams = getDataStreams();
 
-    Array<const DataStream*>     validStreams;
+    Array<const DataStream*> validStreams;
     std::vector<std::vector<int>> channelIndicesPerStream;
     std::vector<std::vector<int>> channelOrdersPerStream; // sorted pos → original electrode number
 
@@ -310,10 +311,10 @@ void QualityMonitor::updateSettings()
             const int nElec = (int) elecLocalIdx.size();
             std::vector<float> depths (nElec);
             std::vector<float> xposValues (nElec);
-            std::vector<int>   groups (nElec, 0);
-            bool allSame          = true;
-            bool anyYposMetadata  = false;
-            bool anyXposMetadata  = false;
+            std::vector<int> groups (nElec, 0);
+            bool allSame = true;
+            bool anyYposMetadata = false;
+            bool anyXposMetadata = false;
             bool anyGroupMetadata = false;
             float last = 0.0f;
 
@@ -337,9 +338,9 @@ void QualityMonitor::updateSettings()
                     }
                 }
 
-                depths[(size_t) i]     = ypos;
+                depths[(size_t) i] = ypos;
                 xposValues[(size_t) i] = ch->position.x;
-                groups[(size_t) i]     = ch->group.number;
+                groups[(size_t) i] = ch->group.number;
 
                 if (! ch->group.name.equalsIgnoreCase ("default"))
                     anyGroupMetadata = true;
@@ -351,7 +352,7 @@ void QualityMonitor::updateSettings()
             }
 
             const bool positionMetadataAvailable = anyYposMetadata && anyXposMetadata;
-            const bool groupMetadataAvailable    = anyGroupMetadata;
+            const bool groupMetadataAvailable = anyGroupMetadata;
 
             // Only sort if there is meaningful depth/group information
             if (groupMetadataAvailable || ! allSame || anyYposMetadata)
@@ -359,7 +360,7 @@ void QualityMonitor::updateSettings()
                 std::vector<int> order ((size_t) nElec);
                 std::iota (order.begin(), order.end(), 0);
                 std::sort (order.begin(), order.end(), [&] (int a, int b)
-                {
+                           {
                     const float depthDiff    = depths[(size_t) a] - depths[(size_t) b];
                     const float depthEpsilon = 1.0e-3f;
                     if (groupMetadataAvailable && groups[(size_t) a] != groups[(size_t) b])
@@ -368,8 +369,7 @@ void QualityMonitor::updateSettings()
                         return depths[(size_t) a] < depths[(size_t) b];
                     if (positionMetadataAvailable)
                         return xposValues[(size_t) a] < xposValues[(size_t) b];
-                    return a < b;
-                });
+                    return a < b; });
 
                 std::vector<int> sorted ((size_t) nElec);
                 std::vector<int> sortedChannelOrder ((size_t) nElec);
@@ -414,14 +414,14 @@ void QualityMonitor::updateSettings()
         probeMetrics.resize (totalProbes);
         for (int pi = 0; pi < totalProbes; ++pi)
         {
-            const float sr  = validStreams[pi]->getSampleRate();
-            const int   nCh = (int) probeChannelIndices[pi].size();
-            const int   dur = durationSeconds.load();
+            const float sr = validStreams[pi]->getSampleRate();
+            const int nCh = (int) probeChannelIndices[pi].size();
+            const int dur = durationSeconds.load();
             auto* rmsThresholdParam = validStreams[pi]->getParameter (kRmsThresholdParam);
             auto* powerlineSNRThreshParam = validStreams[pi]->getParameter (kPowerlineSNRThreshParam);
-            auto* spikeFailHzParam  = validStreams[pi]->getParameter (kSpikeFailHzParam);
-            auto* spikeLowHzParam   = validStreams[pi]->getParameter (kSpikeLowHzParam);
-            auto* powerlineHzParam  = getParameter (kPowerlineHzParam);
+            auto* spikeFailHzParam = validStreams[pi]->getParameter (kSpikeFailHzParam);
+            auto* spikeLowHzParam = validStreams[pi]->getParameter (kSpikeLowHzParam);
+            auto* powerlineHzParam = getParameter (kPowerlineHzParam);
 
             auto& currentMetrics = probeMetrics.getReference (pi);
 
@@ -445,11 +445,10 @@ void QualityMonitor::updateSettings()
     procState.resize (totalProbes);
     for (int pi = 0; pi < totalProbes; ++pi)
     {
-        const int   nCh = (int) probeChannelIndices[pi].size();
-        const float sr  = validStreams[pi]->getSampleRate();
-        const int   dur = durationSeconds.load();
-        procState[pi].allocate (nCh, probeMetrics.getReference(pi).rmsWindowSamples,
-                                      probeMetrics.getReference(pi).snapshotSamples);
+        const int nCh = (int) probeChannelIndices[pi].size();
+        const float sr = validStreams[pi]->getSampleRate();
+        const int dur = durationSeconds.load();
+        procState[pi].allocate (nCh, probeMetrics.getReference (pi).rmsWindowSamples, probeMetrics.getReference (pi).snapshotSamples);
         procState[pi].totalSamplesAllowed = int64_t (dur) * int64_t (sr + 0.5f);
     }
 }
@@ -510,14 +509,14 @@ void QualityMonitor::process (AudioBuffer<float>& buffer)
                     ps.wasBelowThresh[c] = belowPrev;
                 }
 
-                ps.rmsSampleCount   += chunk;
+                ps.rmsSampleCount += chunk;
                 ps.spikeSampleCount += chunk;
-                rmsOffset           += chunk;
-                rmsRemain           -= chunk;
+                rmsOffset += chunk;
+                rmsRemain -= chunk;
 
                 if (ps.rmsSampleCount >= ps.rmsWindowSamples)
                 {
-                    finalizeRms    (pi);
+                    finalizeRms (pi);
                     finalizeSpikes (pi);
                 }
             }
@@ -570,12 +569,16 @@ void QualityMonitor::process (AudioBuffer<float>& buffer)
 
         // 5. Track total samples; end processing when duration elapses
         ps.totalSamplesProcessed += numSamples;
-        if (ps.totalSamplesAllowed > 0 &&
-            ps.totalSamplesProcessed >= ps.totalSamplesAllowed)
+        if (ps.totalSamplesAllowed > 0 && ps.totalSamplesProcessed >= ps.totalSamplesAllowed)
         {
             // Force-finalize any partial windows
-            if (ps.rmsSampleCount > 0) { finalizeRms (pi); finalizeSpikes (pi); }
-            if (ps.fftWinCount > 0)    finalizeFFT (pi);
+            if (ps.rmsSampleCount > 0)
+            {
+                finalizeRms (pi);
+                finalizeSpikes (pi);
+            }
+            if (ps.fftWinCount > 0)
+                finalizeFFT (pi);
 
             ps.processingDone = true;
             {
@@ -594,7 +597,11 @@ void QualityMonitor::process (AudioBuffer<float>& buffer)
             // can be started without stopping/restarting acquisition.
             bool allDone = true;
             for (int i = 0; i < totalProbes; ++i)
-                if (! procState[i].processingDone) { allDone = false; break; }
+                if (! procState[i].processingDone)
+                {
+                    allDone = false;
+                    break;
+                }
             if (allDone)
                 processingHasStarted.store (false);
         }
@@ -638,16 +645,15 @@ void QualityMonitor::finalizeRms (int pi)
     // Linearize snapshot ring buffer into probeMetrics (lock already held)
     {
         const int writePos = ps.snapshotPos;
-        const int tail     = ps.snapshotSamples - writePos;
+        const int tail = ps.snapshotSamples - writePos;
         for (int c = 0; c < nCh; ++c)
         {
             const float* ring = ps.snapshotRing.data() + c * ps.snapshotSamples;
-            float*       dst  = m.dataSnapshot.data()  + c * ps.snapshotSamples;
+            float* dst = m.dataSnapshot.data() + c * ps.snapshotSamples;
             std::copy (ring + writePos, ring + ps.snapshotSamples, dst);
-            std::copy (ring,            ring + writePos,           dst + tail);
+            std::copy (ring, ring + writePos, dst + tail);
         }
     }
-
 }
 
 void QualityMonitor::finalizeFFT (int pi)
@@ -670,11 +676,11 @@ void QualityMonitor::finalizeFFT (int pi)
     ps.fftWinCount = 0;
 
     // Snapshot read-only fields before entering the lock
-    const float sr     = probeMetrics[pi].sampleRate;
-    const float plHz   = probeMetrics[pi].powerlineHz;
+    const float sr = probeMetrics[pi].sampleRate;
+    const float plHz = probeMetrics[pi].powerlineHz;
     const float snrThr = probeMetrics[pi].powerlineSNRThresh;
 
-    const float nyquist  = sr / 2.0f;
+    const float nyquist = sr / 2.0f;
     const float hzPerBin = sr / float (FFT_SIZE);
     auto hzToBin = [&] (float hz) -> int
     {
@@ -682,11 +688,11 @@ void QualityMonitor::finalizeFFT (int pi)
     };
 
     // Band limits (computed once, reused per channel)
-    const int plBin     = hzToBin (plHz);
+    const int plBin = hzToBin (plHz);
     const int kRefStart = hzToBin (500.0f);
-    const int kRefEnd   = std::min (FFT_BINS - 1, hzToBin (5000.0f));
-    const int kHFStart  = hzToBin (8000.0f);
-    const int kHFEnd    = std::min (FFT_BINS - 1, hzToBin (jmin (15000.0f, nyquist)));
+    const int kRefEnd = std::min (FFT_BINS - 1, hzToBin (5000.0f));
+    const int kHFStart = hzToBin (8000.0f);
+    const int kHFEnd = std::min (FFT_BINS - 1, hzToBin (jmin (15000.0f, nyquist)));
 
     int numNoisyCh = 0;
     for (int c = 0; c < nCh; ++c)
@@ -696,23 +702,32 @@ void QualityMonitor::finalizeFFT (int pi)
         // --- Per-channel powerline band power: mean of ±3 bins around fundamental ---
         {
             float plSum = 0.0f;
-            int   plCnt = 0;
+            int plCnt = 0;
             for (int k = plBin - 3; k <= plBin + 3; ++k)
             {
                 if (k >= 1 && k < FFT_BINS && row[k] > 0.0f)
-                    { plSum += row[k]; ++plCnt; }
+                {
+                    plSum += row[k];
+                    ++plCnt;
+                }
             }
             ps.scratchPlDb[c] = (plCnt > 0 && plSum > 0.0f)
-                ? 10.0f * std::log10 (plSum / float (plCnt)) : 0.0f;
+                                    ? 10.0f * std::log10 (plSum / float (plCnt))
+                                    : 0.0f;
         }
 
         // --- Per-channel HF band power: mean over 8–15 kHz ---
         float hfSum = 0.0f;
-        int   hfCnt = 0;
+        int hfCnt = 0;
         for (int k = kHFStart; k <= kHFEnd; ++k)
-            if (row[k] > 0.0f) { hfSum += row[k]; ++hfCnt; }
+            if (row[k] > 0.0f)
+            {
+                hfSum += row[k];
+                ++hfCnt;
+            }
         ps.scratchHFDb[c] = (hfCnt > 0 && hfSum > 0.0f)
-            ? 10.0f * std::log10 (hfSum / float (hfCnt)) : 0.0f;
+                                ? 10.0f * std::log10 (hfSum / float (hfCnt))
+                                : 0.0f;
 
         // --- Noisy channel detection ---
         bool noisy = false;
@@ -723,8 +738,10 @@ void QualityMonitor::finalizeFFT (int pi)
             int surroundCount = 0;
             for (int kb = plBin - 20; kb <= plBin + 20; ++kb)
             {
-                if (kb < 0 || kb >= FFT_BINS) continue;
-                if (std::abs (kb - plBin) <= 3) continue;
+                if (kb < 0 || kb >= FFT_BINS)
+                    continue;
+                if (std::abs (kb - plBin) <= 3)
+                    continue;
                 ps.scratchSurround[surroundCount++] = row[kb];
             }
             if (surroundCount > 0)
@@ -734,7 +751,8 @@ void QualityMonitor::finalizeFFT (int pi)
                 if (med >= 1e-30f)
                 {
                     const float snrDb = 10.0f * std::log10 (row[plBin] / med);
-                    if (snrDb > snrThr) noisy = true;
+                    if (snrDb > snrThr)
+                        noisy = true;
                 }
             }
         }
@@ -743,26 +761,31 @@ void QualityMonitor::finalizeFFT (int pi)
         if (! noisy && kHFEnd > kHFStart && kRefEnd > kRefStart && hfCnt > 0)
         {
             float refSum = 0.0f;
-            int   refCnt = 0;
+            int refCnt = 0;
             for (int k = kRefStart; k <= kRefEnd; ++k)
-                if (row[k] > 0.0f) { refSum += row[k]; ++refCnt; }
+                if (row[k] > 0.0f)
+                {
+                    refSum += row[k];
+                    ++refCnt;
+                }
             if (refCnt > 0 && refSum > 1e-30f)
             {
-                const float snrDb = 10.0f * std::log10 ((hfSum / float (hfCnt))
-                                                       / (refSum / float (refCnt)));
-                if (snrDb > snrThr) noisy = true;
+                const float snrDb = 10.0f * std::log10 ((hfSum / float (hfCnt)) / (refSum / float (refCnt)));
+                if (snrDb > snrThr)
+                    noisy = true;
             }
         }
 
-        if (noisy) ++numNoisyCh;
+        if (noisy)
+            ++numNoisyCh;
     }
 
     std::lock_guard<std::mutex> lock (metricsMutex);
     auto& m = probeMetrics.getReference (pi);
-    m.powerSpectrum      = ps.scratchSpec;
+    m.powerSpectrum = ps.scratchSpec;
     m.channelPowerlineDb = ps.scratchPlDb;
-    m.channelHFNoiseDb   = ps.scratchHFDb;
-    m.numNoisyChannels   = numNoisyCh;
+    m.channelHFNoiseDb = ps.scratchHFDb;
+    m.numNoisyChannels = numNoisyCh;
 }
 
 void QualityMonitor::finalizeSpikes (int pi)
@@ -772,11 +795,11 @@ void QualityMonitor::finalizeSpikes (int pi)
 
     // First window used bootstrap threshold — discard its counts so spikes
     // detected before the adaptive threshold was calibrated don't bias the average.
-    if (!ps.spikeWarmupDone)
+    if (! ps.spikeWarmupDone)
     {
         std::fill (ps.spikeCount.begin(), ps.spikeCount.end(), 0);
         ps.spikeSampleCount = 0;
-        ps.spikeWarmupDone  = true;
+        ps.spikeWarmupDone = true;
         return;
     }
 
@@ -789,10 +812,10 @@ void QualityMonitor::finalizeSpikes (int pi)
     for (int c = 0; c < nCh; ++c)
     {
         ps.cumSpikeCount[c] += ps.spikeCount[c];
-        ps.spikeCount[c]     = 0;
+        ps.spikeCount[c] = 0;
     }
-    ps.cumSpikeSamples  += ps.spikeSampleCount;
-    ps.spikeSampleCount  = 0;
+    ps.cumSpikeSamples += ps.spikeSampleCount;
+    ps.spikeSampleCount = 0;
 
     // Average rate over the entire run so far
     const float totalElapsedSec = std::max (
@@ -803,7 +826,7 @@ void QualityMonitor::finalizeSpikes (int pi)
 
     std::lock_guard<std::mutex> lock (metricsMutex);
     auto& m = probeMetrics.getReference (pi);
-    m.spikeRateHz     = ps.scratchLocalRates;
+    m.spikeRateHz = ps.scratchLocalRates;
     m.spikeRateLiveHz = ps.scratchLiveRates;
 
     // Accumulate live rates into the spike-rate history heatmap
@@ -834,9 +857,9 @@ void QualityMonitor::captureSnapshot (int pi, AudioBuffer<float>& buffer)
     // Channel-major: at most two contiguous copies per channel to handle the ring wrap
     for (int c = 0; c < nCh; ++c)
     {
-        const float* src  = buffer.getReadPointer (chIndices[c]);
-        float*       ring = ps.snapshotRing.data() + c * ps.snapshotSamples;
-        uint8_t&     saturated = ps.snapshotSaturated[(size_t) c];
+        const float* src = buffer.getReadPointer (chIndices[c]);
+        float* ring = ps.snapshotRing.data() + c * ps.snapshotSamples;
+        uint8_t& saturated = ps.snapshotSaturated[(size_t) c];
         for (int s = 0; s < N; ++s)
             if (std::abs (src[s]) >= SNAPSHOT_SATURATION_THRESHOLD_UV)
                 saturated = 1;
@@ -847,8 +870,8 @@ void QualityMonitor::captureSnapshot (int pi, AudioBuffer<float>& buffer)
         }
         else
         {
-            std::copy (src,        src + wrap, ring + pos);
-            std::copy (src + wrap, src + N,    ring);
+            std::copy (src, src + wrap, ring + pos);
+            std::copy (src + wrap, src + N, ring);
         }
     }
 
@@ -949,18 +972,18 @@ void QualityMonitor::doStartProcessing()
     {
         auto& ps = procState[pi];
         ps.totalSamplesProcessed = 0;
-        ps.processingDone        = false;
-        ps.rmsSampleCount        = 0;
-        std::fill (ps.rmsSumSq.begin(),      ps.rmsSumSq.end(),      0.0);
-        std::fill (ps.spikeCount.begin(),    ps.spikeCount.end(),    0);
+        ps.processingDone = false;
+        ps.rmsSampleCount = 0;
+        std::fill (ps.rmsSumSq.begin(), ps.rmsSumSq.end(), 0.0);
+        std::fill (ps.spikeCount.begin(), ps.spikeCount.end(), 0);
         ps.spikeSampleCount = 0;
         std::fill (ps.cumSpikeCount.begin(), ps.cumSpikeCount.end(), 0LL);
-        ps.cumSpikeSamples  = 0;
-        ps.spikeWarmupDone  = false;
-        ps.fftRingPos       = 0;
-        ps.fftWinCount      = 0;
-        std::fill (ps.powerAccum.begin(),    ps.powerAccum.end(),    0.0);
-        std::fill (ps.snapshotRing.begin(),  ps.snapshotRing.end(),  0.0f);
+        ps.cumSpikeSamples = 0;
+        ps.spikeWarmupDone = false;
+        ps.fftRingPos = 0;
+        ps.fftWinCount = 0;
+        std::fill (ps.powerAccum.begin(), ps.powerAccum.end(), 0.0);
+        std::fill (ps.snapshotRing.begin(), ps.snapshotRing.end(), 0.0f);
         std::fill (ps.snapshotSaturated.begin(), ps.snapshotSaturated.end(), uint8_t (0));
         ps.snapshotPos = 0;
     }
@@ -970,29 +993,29 @@ void QualityMonitor::doStartProcessing()
         for (int pi = 0; pi < totalProbes; ++pi)
         {
             auto& m = probeMetrics.getReference (pi);
-            const float sr        = m.sampleRate;
-            const int   nCh       = m.numChannels;
-            const int   maxFrames = std::max (1, int (float (dur) * sr / float (m.rmsWindowSamples)));
+            const float sr = m.sampleRate;
+            const int nCh = m.numChannels;
+            const int maxFrames = std::max (1, int (float (dur) * sr / float (m.rmsWindowSamples)));
 
-            m.processingDone      = false;
+            m.processingDone = false;
             m.resetStatuses();
-            m.numHighRmsChannels  = 0;
+            m.numHighRmsChannels = 0;
             m.numLowSpikeChannels = 0;
-            m.numNoisyChannels    = 0;
+            m.numNoisyChannels = 0;
             m.numSaturatedChannels = 0;
-            m.rmsHistoryFrames    = 0;
+            m.rmsHistoryFrames = 0;
             m.spikeRateHistoryFrames = 0;
             m.analysisDurationSec = dur;
             m.rmsHistoryMaxFrames = maxFrames;
-            m.rmsUV.assign            (nCh, 0.0f);
-            m.spikeRateHz.assign      (nCh, 0.0f);
-            m.spikeRateLiveHz.assign  (nCh, 0.0f);
-            m.powerSpectrum.assign    (nCh * FFT_BINS, 0.0f);
-            m.dataSnapshot.assign     (nCh * m.snapshotSamples, 0.0f);
-            m.rmsHistory.assign   (nCh * maxFrames, 0.0f);
+            m.rmsUV.assign (nCh, 0.0f);
+            m.spikeRateHz.assign (nCh, 0.0f);
+            m.spikeRateLiveHz.assign (nCh, 0.0f);
+            m.powerSpectrum.assign (nCh * FFT_BINS, 0.0f);
+            m.dataSnapshot.assign (nCh * m.snapshotSamples, 0.0f);
+            m.rmsHistory.assign (nCh * maxFrames, 0.0f);
             m.spikeRateHistory.assign (nCh * maxFrames, 0.0f);
             m.channelPowerlineDb.assign (nCh, 0.0f);
-            m.channelHFNoiseDb.assign   (nCh, 0.0f);
+            m.channelHFNoiseDb.assign (nCh, 0.0f);
 
             procState[pi].totalSamplesAllowed =
                 int64_t (dur) * int64_t (sr + 0.5f);
