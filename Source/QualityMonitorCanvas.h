@@ -113,7 +113,7 @@ private:
     float maxRms    = 1.0f;
     bool processingDone = false;
     PanelLayoutCache panelLayout;
-    std::unique_ptr<TextBoxParameterEditor> thresholdEditor;
+    std::unique_ptr<BoundedValueParameterEditor> thresholdEditor;
     void drawColourBar (Graphics& g, Rectangle<float> r);
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (RmsHeatmapPanel)
@@ -142,7 +142,7 @@ private:
     float gMaxDb =    0.0f;
     bool  hasData = false;
     PanelLayoutCache panelLayout;
-    std::unique_ptr<TextBoxParameterEditor> noiseThresholdEditor;
+    std::unique_ptr<BoundedValueParameterEditor> noiseThresholdEditor;
     void drawColourBar (Graphics& g, Rectangle<float> r);
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PowerSpectrumPanel)
@@ -192,8 +192,8 @@ private:
     float spikeLowHz  = 2.0f;
     int numLowCh = 0;
     PanelLayoutCache panelLayout;
-    std::unique_ptr<TextBoxParameterEditor> failThresholdEditor;
-    std::unique_ptr<TextBoxParameterEditor> lowThresholdEditor;
+    std::unique_ptr<BoundedValueParameterEditor> failThresholdEditor;
+    std::unique_ptr<BoundedValueParameterEditor> lowThresholdEditor;
     void drawColourBar (Graphics& g, Rectangle<float> r);
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SpikeRatePanel)

@@ -97,11 +97,11 @@ static Font interRegular  (float size) { return Font (FontOptions ("Inter", "Reg
 static Font interSemiBold (float size) { return Font (FontOptions ("Inter", "Semi Bold", size)); }
 static Font firaCodeRegular (float size) { return Font (FontOptions ("Fira Code", "Regular", size)); }
 
-static TextBoxParameterEditor* bindCompactTextEditor (std::unique_ptr<TextBoxParameterEditor>& pEditor,
-                                                      Component& owner,
-                                                      Parameter* parameter,
-                                                      const String& shortLabel,
-                                                      int width)
+static BoundedValueParameterEditor* bindCompactParameterEditor (std::unique_ptr<BoundedValueParameterEditor>& pEditor,
+                                                                Component& owner,
+                                                                Parameter* parameter,
+                                                                const String& shortLabel,
+                                                                int width)
 {
     if (parameter == nullptr)
     {
@@ -111,7 +111,7 @@ static TextBoxParameterEditor* bindCompactTextEditor (std::unique_ptr<TextBoxPar
 
     if (pEditor == nullptr)
     {
-        pEditor = std::make_unique<TextBoxParameterEditor> (parameter, PANEL_EDITOR_H, width);
+        pEditor = std::make_unique<BoundedValueParameterEditor> (parameter, PANEL_EDITOR_H, width);
         pEditor->setLayout (ParameterEditor::nameOnLeft);
         if (auto* label = pEditor->getLabel())
         {
@@ -127,6 +127,7 @@ static TextBoxParameterEditor* bindCompactTextEditor (std::unique_ptr<TextBoxPar
     }
 
     pEditor->setSize (width, PANEL_EDITOR_H);
+
     if (auto* label = pEditor->getLabel())
         label->setSize (70, PANEL_EDITOR_H);
 
@@ -335,7 +336,7 @@ void ZoomablePanel::updateResetButtonBounds()
 
 void RmsHeatmapPanel::bindThresholdParameter (Parameter* parameter)
 {
-    bindCompactTextEditor (thresholdEditor, *this, parameter, "Threshold", PARAM_EDITOR_W);
+    bindCompactParameterEditor (thresholdEditor, *this, parameter, "Threshold", PARAM_EDITOR_W);
     resized();
 }
 
@@ -542,7 +543,7 @@ void RmsHeatmapPanel::paint (Graphics& g)
 
 void PowerSpectrumPanel::bindNoiseThresholdParameter (Parameter* parameter)
 {
-    bindCompactTextEditor (noiseThresholdEditor, *this, parameter, "SNR Thresh.", PARAM_EDITOR_W);
+    bindCompactParameterEditor (noiseThresholdEditor, *this, parameter, "SNR Thresh.", PARAM_EDITOR_W);
     resized();
 }
 
@@ -1013,8 +1014,8 @@ void DataSnapshotPanel::paint (Graphics& g)
 
 void SpikeRatePanel::bindThresholdParameters (Parameter* failParameter, Parameter* lowParameter)
 {
-    bindCompactTextEditor (failThresholdEditor, *this, failParameter, "Fail Thresh.", PARAM_EDITOR_W);
-    bindCompactTextEditor (lowThresholdEditor, *this, lowParameter, "Low Thresh.", PARAM_EDITOR_W);
+    bindCompactParameterEditor (failThresholdEditor, *this, failParameter, "Fail Thresh.", PARAM_EDITOR_W);
+    bindCompactParameterEditor (lowThresholdEditor, *this, lowParameter, "Low Thresh.", PARAM_EDITOR_W);
     resized();
 }
 
