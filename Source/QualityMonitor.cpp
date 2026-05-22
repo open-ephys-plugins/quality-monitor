@@ -153,7 +153,7 @@ void QualityMonitor::registerParameters()
                        "Hz",
                        2.0f,
                        1.0f,
-                       50.0f,
+                       20.0f,
                        0.1f);
 }
 
@@ -229,7 +229,20 @@ void QualityMonitor::parameterValueChanged (Parameter* parameter)
 
         const float failHz = getFloatParameterValue (stream->getParameter (kSpikeFailHzParam), 0.1f);
         const float lowHz = getFloatParameterValue (stream->getParameter (kSpikeLowHzParam), 2.0f);
-        setSpikeRateThresh (probeIdx, failHz, std::max (failHz, lowHz));
+
+        if (name.equalsIgnoreCase (kSpikeFailHzParam) && failHz > lowHz)
+        {
+            parameter->restorePreviousValue();
+            return;
+        }
+
+        if (name.equalsIgnoreCase (kSpikeLowHzParam) && lowHz < failHz)
+        {
+            parameter->restorePreviousValue();
+            return;
+        }
+
+        setSpikeRateThresh (probeIdx, failHz, lowHz);
     }
 }
 
