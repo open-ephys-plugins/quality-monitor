@@ -210,6 +210,8 @@ static var probeMetricsToVar (const ProbeMetrics& metrics, uint16 streamId)
 
 static Result writeComponentSnapshot (Component& component, Rectangle<int> bounds, const File& outputFile)
 {
+    const float MIN_SNAPSHOT_HEIGHT_PX = 1000.0f;
+
     if (component.getWidth() <= 0 || component.getHeight() <= 0)
         return Result::fail ("Component has invalid bounds for snapshot export.");
 
@@ -217,7 +219,9 @@ static Result writeComponentSnapshot (Component& component, Rectangle<int> bound
     if (bounds.isEmpty())
         return Result::fail ("Component plot bounds are empty for snapshot export.");
 
-    Image image = component.createComponentSnapshot (bounds);
+    const float snapshotScale = std::max (1.0f,
+                                          MIN_SNAPSHOT_HEIGHT_PX / float (std::max (1, bounds.getHeight())));
+    Image image = component.createComponentSnapshot (bounds, true, snapshotScale);
 
     PNGImageFormat pngFormat;
     std::unique_ptr<FileOutputStream> stream (outputFile.createOutputStream());
