@@ -1678,8 +1678,8 @@ QualityMonitorCanvas::QualityMonitorCanvas (QualityMonitor* proc)
     };
 
     makeLayoutBtn (layoutGridBtn, "Grid 2x2", PATH_D_GRID);
-    makeLayoutBtn (layoutHStackBtn, "Horizontal 4x1", PATH_D_HSTACK);
-    makeLayoutBtn (layoutVStackBtn, "Vertical 1x4", PATH_D_VSTACK);
+    makeLayoutBtn (layoutHStackBtn, "Horizontal 1x4", PATH_D_HSTACK);
+    makeLayoutBtn (layoutVStackBtn, "Vertical 4x1", PATH_D_VSTACK);
 
     // Default: grid selected
     layoutGridBtn->setToggleState (true, dontSendNotification);
@@ -1694,7 +1694,7 @@ QualityMonitorCanvas::QualityMonitorCanvas (QualityMonitor* proc)
     };
     layoutHStackBtn->onClick = [this]
     {
-        content->setLayout (ContentComponent::PanelLayout::Stack4x1);
+        content->setLayout (ContentComponent::PanelLayout::Stack1x4);
         layoutPanels();
         layoutGridBtn->setToggleState (false, dontSendNotification);
         layoutHStackBtn->setToggleState (true, dontSendNotification);
@@ -1702,7 +1702,7 @@ QualityMonitorCanvas::QualityMonitorCanvas (QualityMonitor* proc)
     };
     layoutVStackBtn->onClick = [this]
     {
-        content->setLayout (ContentComponent::PanelLayout::Stack1x4);
+        content->setLayout (ContentComponent::PanelLayout::Stack4x1);
         layoutPanels();
         layoutGridBtn->setToggleState (false, dontSendNotification);
         layoutHStackBtn->setToggleState (false, dontSendNotification);
