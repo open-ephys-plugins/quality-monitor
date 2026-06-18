@@ -343,7 +343,7 @@ static void drawChannelYTicks (Graphics& g, Rectangle<int> pb, int viewChStart, 
     {
         const float y = chCentreY (t);
         const int textY = jlimit (pb.getY(), pb.getBottom() - 10, int (y) - 5);
-        const int label = (t >= 0 && t < (int) channelOrder.size()) ? channelOrder[t] : t;
+        const int label = ((t >= 0 && t < (int) channelOrder.size()) ? channelOrder[t] : t) + 1;
         g.drawText (String (label), pb.getX() - AXIS_L, textY, AXIS_L - 6, 10, Justification::centredRight);
         g.drawHorizontalLine (int (y), float (pb.getX()) - 4.0f, float (pb.getX()));
     }
