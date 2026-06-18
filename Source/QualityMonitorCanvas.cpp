@@ -1658,7 +1658,7 @@ QualityMonitorCanvas::QualityMonitorCanvas (QualityMonitor* proc)
     saveBtn = std::make_unique<TextButton> ("Save");
     saveBtn->setColour (TextButton::buttonColourId, Colour (0xff388e3c));
     saveBtn->setEnabled (false);
-    saveBtn->setTooltip ("Save the completed run as plot PNGs and metrics JSON");
+    saveBtn->setTooltip ("Choose where to save the completed run as plot PNGs and metrics JSON");
     saveBtn->onClick = [this]
     {
         saveCurrentRunArtifacts();
@@ -1928,9 +1928,25 @@ void QualityMonitorCanvas::saveCurrentRunArtifacts()
         content->spikePanel->updateData (selectedMetrics);
     };
 
+    FileChooser saveLocationChooser ("Select a folder for the exported plots and metrics",
+                                     CoreServices::getDefaultUserSaveDirectory(),
+                                     String(),
+                                     true);
+
+    if (! saveLocationChooser.browseForDirectory())
+        return;
+
+    const File saveDir = saveLocationChooser.getResult();
+    if (! saveDir.isDirectory())
+    {
+        AlertWindow::showMessageBoxAsync (AlertWindow::WarningIcon,
+                                          "Quality Monitor",
+                                          "The selected save location is not a valid folder.");
+        return;
+    }
+
     const Time now = Time::getCurrentTime();
     const String timestamp = now.formatted ("%Y-%m-%d_%H-%M-%S");
-    const File saveDir = CoreServices::getDefaultUserSaveDirectory();
 
     const File exportDir = saveDir.getChildFile ("quality-monitor-" + timestamp);
     Result result = exportDir.createDirectory();
