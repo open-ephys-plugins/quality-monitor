@@ -66,13 +66,42 @@ static constexpr int ALERT_BADGE_MAX_W = 220;
 static constexpr int RESET_BTN_SIZE = 18;
 static constexpr int PARAM_EDITOR_W = 140;
 
-static void drawBadge (Graphics& g, Rectangle<int> r, Colour bg, const String& text)
+static float channelFailurePercentage (int failingChannels, int totalChannels)
 {
-    g.setColour (bg);
+    if (totalChannels <= 0)
+        return 0.0f;
+
+    return 100.0f * float (failingChannels) / float (totalChannels);
+}
+
+static String formatPercentage (float percentage)
+{
+    const float clamped = jlimit (0.0f, 100.0f, percentage);
+    const float rounded = std::round (clamped);
+
+    if (std::abs (clamped - rounded) < 0.05f)
+        return String (int (rounded)) + "%";
+
+    return String (clamped, 1) + "%";
+}
+
+static void drawPercentageBadge (Graphics& g,
+                                 Rectangle<int> r,
+                                 int failingChannels,
+                                 int totalChannels,
+                                 float failChannelPercentage,
+                                 const String& label)
+{
+    const float percentage = channelFailurePercentage (failingChannels, totalChannels);
+    const bool passing = percentage <= failChannelPercentage;
+    const Colour badgeColour = passing ? Colours::green : Colours::red;
+    String badgeText = formatPercentage (percentage) + " channels " + label;
+
+    g.setColour (badgeColour);
     g.fillRoundedRectangle (r.toFloat(), 4.0f);
     g.setColour (Colours::white);
-    g.setFont (Font (FontOptions ("Inter", "Semi Bold", 11.0f)));
-    g.drawText (text, r, Justification::centred, false);
+    g.setFont (Font (FontOptions ("Inter", "Medium", 12.0f)));
+    g.drawText (badgeText, r, Justification::centred, false);
 }
 
 static void drawStatusIndicator (Graphics& g, Rectangle<float> bounds, ProbeStatus status)
@@ -124,46 +153,6 @@ static String runStatusToString (bool acquisitionActive, bool processingDone)
     return "idle";
 }
 
-static String sanitizeFileNamePart (String text)
-{
-    String sanitized = text.trim();
-
-    if (sanitized.isEmpty())
-        sanitized = "unnamed_stream";
-
-    sanitized = sanitized.replaceCharacter (' ', '_');
-
-    const String allowed ("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_()");
-    String result;
-    result.preallocateBytes (sanitized.getNumBytesAsUTF8());
-
-    for (juce_wchar ch : sanitized)
-        result += allowed.containsChar (ch) ? String::charToString (ch) : "_";
-
-    while (result.contains ("__"))
-        result = result.replace ("__", "_");
-
-    return result.trimCharactersAtStart ("_").trimCharactersAtEnd ("_");
-}
-
-static Array<var> toVarArray (const std::vector<float>& values)
-{
-    Array<var> array;
-    array.ensureStorageAllocated ((int) values.size());
-    for (float value : values)
-        array.add (value);
-    return array;
-}
-
-static Array<var> toVarArray (const std::vector<int>& values)
-{
-    Array<var> array;
-    array.ensureStorageAllocated ((int) values.size());
-    for (int value : values)
-        array.add (value);
-    return array;
-}
-
 static bool isRunCompleted (const Array<ProbeMetrics>& metrics)
 {
     if (metrics.isEmpty())
@@ -196,11 +185,14 @@ static var probeMetricsToVar (const ProbeMetrics& metrics, uint16 streamId)
     statusObject->setProperty ("spike", probeStatusToString (metrics.spikeStatus));
 
     thresholdObject->setProperty ("rms_uv", metrics.rmsThresholdUV);
+    thresholdObject->setProperty ("rms_fail_channel_percentage", metrics.rmsFailChannelPercentage);
     thresholdObject->setProperty ("spike_rate_fail_hz", metrics.spikeRateFailHz);
-    thresholdObject->setProperty ("spike_rate_low_hz", metrics.spikeRateLowHz);
+    thresholdObject->setProperty ("spike_fail_channel_percentage", metrics.spikeFailChannelPercentage);
     thresholdObject->setProperty ("powerline_hz", metrics.powerlineHz);
     thresholdObject->setProperty ("powerline_snr_thresh_db", metrics.powerlineSNRThresh);
+    thresholdObject->setProperty ("spectrum_fail_channel_percentage", metrics.spectrumFailChannelPercentage);
     thresholdObject->setProperty ("snapshot_saturation_uv", metrics.snapshotSaturationThresholdUV);
+    thresholdObject->setProperty ("snapshot_fail_channel_percentage", metrics.snapshotFailChannelPercentage);
 
     alertObject->setProperty ("high_rms_channel_count", metrics.numHighRmsChannels);
     alertObject->setProperty ("low_spike_channel_count", metrics.numLowSpikeChannels);
@@ -482,16 +474,27 @@ void ZoomablePanel::updateResetButtonBounds()
 // ─── RmsHeatmapPanel ─────────────────────────────────────────────────────────
 //   Y axis = channels, X axis = time (one column per RMS window ∼1 s)
 
-void RmsHeatmapPanel::bindThresholdParameter (Parameter* parameter)
+void RmsHeatmapPanel::bindThresholdParameters (Parameter* thresholdParameter, Parameter* channelPercentageParameter)
 {
-    bindCompactParameterEditor (thresholdEditor, *this, parameter, "Threshold", PARAM_EDITOR_W);
+    bindCompactParameterEditor (thresholdEditor, *this, thresholdParameter, "Threshold", PARAM_EDITOR_W);
+    bindCompactParameterEditor (channelPercentageEditor, *this, channelPercentageParameter, "Channel %", PARAM_EDITOR_W);
     resized();
 }
 
 void RmsHeatmapPanel::resized()
 {
+    int visibleControlCount = 0;
     if (thresholdEditor != nullptr)
-        thresholdEditor->setBounds (getHeaderControlBounds (PARAM_EDITOR_W, 0, 1, PANEL_EDITOR_H));
+        ++visibleControlCount;
+    if (channelPercentageEditor != nullptr)
+        ++visibleControlCount;
+
+    int columnIndex = 0;
+    if (thresholdEditor != nullptr)
+        thresholdEditor->setBounds (getHeaderControlBounds (PARAM_EDITOR_W, columnIndex++, visibleControlCount, PANEL_EDITOR_H, PANEL_EDITOR_COL_GAP));
+
+    if (channelPercentageEditor != nullptr)
+        channelPercentageEditor->setBounds (getHeaderControlBounds (PARAM_EDITOR_W, columnIndex++, visibleControlCount, PANEL_EDITOR_H, PANEL_EDITOR_COL_GAP));
 
     PanelLayoutCache newLayout;
     auto b = getLocalBounds();
@@ -502,7 +505,11 @@ void RmsHeatmapPanel::resized()
     newLayout.titleBounds = titleRow;
 
     auto controlRow = b.removeFromTop (META_H);
-    const int editorReserveWidth = thresholdEditor != nullptr ? PARAM_EDITOR_W + PANEL_CONTROL_RIGHT_PAD : 0;
+    const int editorReserveWidth = visibleControlCount > 0
+                                       ? visibleControlCount * PARAM_EDITOR_W
+                                             + std::max (0, visibleControlCount - 1) * PANEL_EDITOR_COL_GAP
+                                             + PANEL_CONTROL_RIGHT_PAD
+                                       : 0;
 
     b.reduce (0, PLOT_PAD);
     b.removeFromBottom (AXIS_B);
@@ -527,6 +534,7 @@ void RmsHeatmapPanel::updateData (const ProbeMetrics& m)
     rmsHistoryMaxFrames = std::max (1, m.rmsHistoryMaxFrames);
     durationSec = std::max (1, m.analysisDurationSec);
     threshUV = m.rmsThresholdUV;
+    failChannelPercentage = m.rmsFailChannelPercentage;
     numHighRms = m.numHighRmsChannels;
     processingDone = m.processingDone;
 
@@ -592,8 +600,8 @@ void RmsHeatmapPanel::paint (Graphics& g)
     const auto stripBounds = panelLayout.primaryStripBounds;
     const auto cbarBounds = panelLayout.colourBarBounds.toFloat();
 
-    if (numHighRms > 0 && ! panelLayout.badgeBounds.isEmpty())
-        drawBadge (g, panelLayout.badgeBounds, Colour (0xffc62828), String (numHighRms) + " ch above " + String (threshUV, 0) + " μV threshold");
+    if (numCh > 0 && ! panelLayout.badgeBounds.isEmpty())
+        drawPercentageBadge (g, panelLayout.badgeBounds, numHighRms, numCh, failChannelPercentage, "above RMS");
 
     const int pw_i = pb.getWidth();
     const int ph_i = pb.getHeight();
@@ -693,16 +701,27 @@ void RmsHeatmapPanel::paint (Graphics& g)
 
 // ─── PowerSpectrumPanel ───────────────────────────────────────────────────────
 
-void PowerSpectrumPanel::bindNoiseThresholdParameter (Parameter* parameter)
+void PowerSpectrumPanel::bindNoiseThresholdParameters (Parameter* thresholdParameter, Parameter* channelPercentageParameter)
 {
-    bindCompactParameterEditor (noiseThresholdEditor, *this, parameter, "SNR Thresh.", PARAM_EDITOR_W);
+    bindCompactParameterEditor (noiseThresholdEditor, *this, thresholdParameter, "SNR Thresh.", PARAM_EDITOR_W);
+    bindCompactParameterEditor (channelPercentageEditor, *this, channelPercentageParameter, "Channel %", PARAM_EDITOR_W);
     resized();
 }
 
 void PowerSpectrumPanel::resized()
 {
+    int visibleControlCount = 0;
     if (noiseThresholdEditor != nullptr)
-        noiseThresholdEditor->setBounds (getHeaderControlBounds (PARAM_EDITOR_W, 0, 1, PANEL_EDITOR_H));
+        ++visibleControlCount;
+    if (channelPercentageEditor != nullptr)
+        ++visibleControlCount;
+
+    int columnIndex = 0;
+    if (noiseThresholdEditor != nullptr)
+        noiseThresholdEditor->setBounds (getHeaderControlBounds (PARAM_EDITOR_W, columnIndex++, visibleControlCount, PANEL_EDITOR_H, PANEL_EDITOR_COL_GAP));
+
+    if (channelPercentageEditor != nullptr)
+        channelPercentageEditor->setBounds (getHeaderControlBounds (PARAM_EDITOR_W, columnIndex++, visibleControlCount, PANEL_EDITOR_H, PANEL_EDITOR_COL_GAP));
 
     PanelLayoutCache newLayout;
     auto b = getLocalBounds();
@@ -713,7 +732,11 @@ void PowerSpectrumPanel::resized()
     newLayout.titleBounds = titleRow;
 
     auto controlRow = b.removeFromTop (META_H);
-    const int editorReserveWidth = noiseThresholdEditor != nullptr ? PARAM_EDITOR_W + PANEL_CONTROL_RIGHT_PAD : 0;
+    const int editorReserveWidth = visibleControlCount > 0
+                                       ? visibleControlCount * PARAM_EDITOR_W
+                                             + std::max (0, visibleControlCount - 1) * PANEL_EDITOR_COL_GAP
+                                             + PANEL_CONTROL_RIGHT_PAD
+                                       : 0;
 
     b.reduce (0, PLOT_PAD);
     b.removeFromBottom (AXIS_B);
@@ -739,6 +762,7 @@ void PowerSpectrumPanel::updateData (const ProbeMetrics& m)
     sampleRate = m.sampleRate;
     powerlineHz = m.powerlineHz;
     powerlineSNRThresh = m.powerlineSNRThresh;
+    failChannelPercentage = m.spectrumFailChannelPercentage;
     numNoisyCh = m.numNoisyChannels;
     channelPowerlineDb = m.channelPowerlineDb;
     channelHFNoiseDb = m.channelHFNoiseDb;
@@ -806,8 +830,8 @@ void PowerSpectrumPanel::paint (Graphics& g)
     const auto hfStripBounds = panelLayout.secondaryStripBounds;
     const auto cbarBounds = panelLayout.colourBarBounds.toFloat();
 
-    if (numNoisyCh > 0 && ! panelLayout.badgeBounds.isEmpty())
-        drawBadge (g, panelLayout.badgeBounds, Colour (0xffe65100), String (numNoisyCh) + " ch noisy");
+    if (numCh > 0 && ! panelLayout.badgeBounds.isEmpty())
+        drawPercentageBadge (g, panelLayout.badgeBounds, numNoisyCh, numCh, failChannelPercentage, "noisy");
 
     const int pw_i = pb.getWidth();
     const int ph_i = pb.getHeight();
@@ -971,12 +995,20 @@ void PowerSpectrumPanel::paint (Graphics& g)
 // ─── DataSnapshotPanel ────────────────────────────────────────────────────────
 //   Y axis = channels (row per channel), X axis = time samples (columns)
 
+void DataSnapshotPanel::bindThresholdParameters (Parameter* thresholdParameter, Parameter* channelPercentageParameter)
+{
+    bindCompactParameterEditor (thresholdEditor, *this, thresholdParameter, "Saturation", PARAM_EDITOR_W);
+    bindCompactParameterEditor (channelPercentageEditor, *this, channelPercentageParameter, "Channel %", PARAM_EDITOR_W);
+    resized();
+}
+
 void DataSnapshotPanel::updateData (const ProbeMetrics& m)
 {
     snapshot = m.dataSnapshot;
     snapshotSamples = m.snapshotSamples;
     numSaturatedCh = m.numSaturatedChannels;
     saturationThresholdUV = m.snapshotSaturationThresholdUV;
+    failChannelPercentage = m.snapshotFailChannelPercentage;
     channelOrder = m.channelOrder;
     initViewRange (m.numChannels);
 
@@ -1007,6 +1039,19 @@ void DataSnapshotPanel::updateData (const ProbeMetrics& m)
 
 void DataSnapshotPanel::resized()
 {
+    int visibleControlCount = 0;
+    if (thresholdEditor != nullptr)
+        ++visibleControlCount;
+    if (channelPercentageEditor != nullptr)
+        ++visibleControlCount;
+
+    int columnIndex = 0;
+    if (thresholdEditor != nullptr)
+        thresholdEditor->setBounds (getHeaderControlBounds (PARAM_EDITOR_W, columnIndex++, visibleControlCount, PANEL_EDITOR_H, PANEL_EDITOR_COL_GAP));
+
+    if (channelPercentageEditor != nullptr)
+        channelPercentageEditor->setBounds (getHeaderControlBounds (PARAM_EDITOR_W, columnIndex++, visibleControlCount, PANEL_EDITOR_H, PANEL_EDITOR_COL_GAP));
+
     PanelLayoutCache newLayout;
     auto b = getLocalBounds();
     b.reduce (PLOT_PAD, PLOT_PAD);
@@ -1016,6 +1061,11 @@ void DataSnapshotPanel::resized()
     newLayout.titleBounds = titleRow;
 
     auto controlRow = b.removeFromTop (META_H);
+    const int editorReserveWidth = visibleControlCount > 0
+                                       ? visibleControlCount * PARAM_EDITOR_W
+                                             + std::max (0, visibleControlCount - 1) * PANEL_EDITOR_COL_GAP
+                                             + PANEL_CONTROL_RIGHT_PAD
+                                       : 0;
 
     b.reduce (0, PLOT_PAD);
     b.removeFromBottom (AXIS_B);
@@ -1025,7 +1075,7 @@ void DataSnapshotPanel::resized()
     b.removeFromLeft (AXIS_L);
     b.removeFromRight (PLOT_PAD);
     newLayout.plotBounds = b;
-    newLayout.badgeBounds = getAlertBadgeBounds (controlRow.withRight (b.getRight()));
+    newLayout.badgeBounds = getAlertBadgeBounds (controlRow.withRight (b.getRight()), editorReserveWidth);
 
     panelLayout = newLayout;
     lastPb = panelLayout.plotBounds;
@@ -1054,7 +1104,6 @@ void DataSnapshotPanel::paint (Graphics& g)
 
     g.setColour (tickCol);
     g.setFont (interRegular (metaSz));
-    g.drawText ("WINDOW SIZE " + String (SNAPSHOT_WINDOW_MS) + " ms", panelLayout.badgeBounds.withX (PLOT_PAD).withWidth (200), Justification::centredLeft);
 
     if (snapshot.empty() || panelLayout.plotBounds.isEmpty())
         return;
@@ -1063,8 +1112,8 @@ void DataSnapshotPanel::paint (Graphics& g)
     const auto stripBounds = panelLayout.primaryStripBounds;
     const auto cbar = panelLayout.colourBarBounds.toFloat();
 
-    if (numSaturatedCh > 0 && ! panelLayout.badgeBounds.isEmpty())
-        drawBadge (g, panelLayout.badgeBounds, Colour (0xffe65100), String (numSaturatedCh) + " ch saturated above " + String (saturationThresholdUV, 0) + " μV");
+    if (numCh > 0 && ! panelLayout.badgeBounds.isEmpty())
+        drawPercentageBadge (g, panelLayout.badgeBounds, numSaturatedCh, numCh, failChannelPercentage, "saturated");
 
     const int pw_i = pb.getWidth();
     const int ph_i = pb.getHeight();
@@ -1181,10 +1230,10 @@ void DataSnapshotPanel::paint (Graphics& g)
 // ─── SpikeRatePanel ───────────────────────────────────────────────────────────
 //   Y axis = channels, X axis = time (one column per spike-rate window ~200 ms)
 
-void SpikeRatePanel::bindThresholdParameters (Parameter* failParameter, Parameter* lowParameter)
+void SpikeRatePanel::bindThresholdParameters (Parameter* failParameter, Parameter* channelPercentageParameter)
 {
     bindCompactParameterEditor (failThresholdEditor, *this, failParameter, "Fail Thresh.", PARAM_EDITOR_W);
-    bindCompactParameterEditor (lowThresholdEditor, *this, lowParameter, "Low Thresh.", PARAM_EDITOR_W);
+    bindCompactParameterEditor (channelPercentageEditor, *this, channelPercentageParameter, "Channel %", PARAM_EDITOR_W);
     resized();
 }
 
@@ -1193,15 +1242,15 @@ void SpikeRatePanel::resized()
     int visibleControlCount = 0;
     if (failThresholdEditor != nullptr)
         ++visibleControlCount;
-    if (lowThresholdEditor != nullptr)
+    if (channelPercentageEditor != nullptr)
         ++visibleControlCount;
 
     int columnIndex = 0;
     if (failThresholdEditor != nullptr)
         failThresholdEditor->setBounds (getHeaderControlBounds (PARAM_EDITOR_W, columnIndex++, visibleControlCount, PANEL_EDITOR_H, PANEL_EDITOR_COL_GAP));
 
-    if (lowThresholdEditor != nullptr)
-        lowThresholdEditor->setBounds (getHeaderControlBounds (PARAM_EDITOR_W, columnIndex++, visibleControlCount, PANEL_EDITOR_H, PANEL_EDITOR_COL_GAP));
+    if (channelPercentageEditor != nullptr)
+        channelPercentageEditor->setBounds (getHeaderControlBounds (PARAM_EDITOR_W, columnIndex++, visibleControlCount, PANEL_EDITOR_H, PANEL_EDITOR_COL_GAP));
 
     PanelLayoutCache newLayout;
     auto b = getLocalBounds();
@@ -1242,7 +1291,7 @@ void SpikeRatePanel::updateData (const ProbeMetrics& m)
     durationSec = std::max (1, m.analysisDurationSec);
     processingDone = m.processingDone;
     spikeFailHz = m.spikeRateFailHz;
-    spikeLowHz = m.spikeRateLowHz;
+    failChannelPercentage = m.spikeFailChannelPercentage;
     numLowCh = m.numLowSpikeChannels;
     channelOrder = m.channelOrder;
     initViewRange (m.numChannels);
@@ -1299,8 +1348,8 @@ void SpikeRatePanel::paint (Graphics& g)
     const auto stripBounds = panelLayout.primaryStripBounds;
     const auto cbarBounds = panelLayout.colourBarBounds.toFloat();
 
-    if (numLowCh > 0 && ! panelLayout.badgeBounds.isEmpty())
-        drawBadge (g, panelLayout.badgeBounds, Colour (0xffc62828), String (numLowCh) + " ch below " + String (spikeFailHz, 1) + " Hz threshold");
+    if (numCh > 0 && ! panelLayout.badgeBounds.isEmpty())
+        drawPercentageBadge (g, panelLayout.badgeBounds, numLowCh, numCh, failChannelPercentage, "below spike");
 
     const int pw_i = pb.getWidth();
     const int ph_i = pb.getHeight();
@@ -1354,9 +1403,8 @@ void SpikeRatePanel::paint (Graphics& g)
                 const float v = jlimit (1e-6f, 100.0f, rate);
                 const float t = jlimit (0.0f, 1.0f, std::log10 (v) / 2.0f);
                 const int barW = jlimit (0, sw, int (t * float (sw)));
-                const Colour col = rate < spikeFailHz  ? Colour (0xfff44336)
-                                   : rate < spikeLowHz ? Colour (0xffff9800)
-                                                       : Colour (0xff42a5f5);
+                const Colour col = rate < spikeFailHz ? Colour (0xfff44336)
+                                                      : Colour (0xff42a5f5);
                 for (int x = 0; x < barW; ++x)
                     bmd.setPixelColour (x, y, col);
             }
@@ -1891,11 +1939,18 @@ void QualityMonitorCanvas::updatePanelParameterEditors()
     if (content == nullptr)
         return;
 
-    content->rmsPanel->bindThresholdParameter (getSelectedProbeParameter (QualityMonitorParams::kRmsThresholdParam));
-    content->specPanel->bindNoiseThresholdParameter (getSelectedProbeParameter (QualityMonitorParams::kPowerlineSNRThreshParam));
+    content->rmsPanel->bindThresholdParameters (
+        getSelectedProbeParameter (QualityMonitorParams::kRmsThresholdParam),
+        getSelectedProbeParameter (QualityMonitorParams::kRmsFailChannelPercentageParam));
+    content->specPanel->bindNoiseThresholdParameters (
+        getSelectedProbeParameter (QualityMonitorParams::kPowerlineSNRThreshParam),
+        getSelectedProbeParameter (QualityMonitorParams::kSpectrumFailChannelPercentageParam));
+    content->snapPanel->bindThresholdParameters (
+        getSelectedProbeParameter (QualityMonitorParams::kSnapshotSaturationThresholdParam),
+        getSelectedProbeParameter (QualityMonitorParams::kSnapshotFailChannelPercentageParam));
     content->spikePanel->bindThresholdParameters (
         getSelectedProbeParameter (QualityMonitorParams::kSpikeFailHzParam),
-        getSelectedProbeParameter (QualityMonitorParams::kSpikeLowHzParam));
+        getSelectedProbeParameter (QualityMonitorParams::kSpikeFailChannelPercentageParam));
 }
 
 void QualityMonitorCanvas::updateSaveButtonState()

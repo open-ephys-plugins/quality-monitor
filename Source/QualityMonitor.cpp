@@ -127,6 +127,16 @@ void QualityMonitor::registerParameters()
                        1.0f);
 
     addFloatParameter (Parameter::STREAM_SCOPE,
+                       kRmsFailChannelPercentageParam,
+                       "RMS Channel %",
+                       "Percentage of channels allowed to exceed the RMS threshold before failing",
+                       "%",
+                       50.0f,
+                       0.0f,
+                       100.0f,
+                       1.0f);
+
+    addFloatParameter (Parameter::STREAM_SCOPE,
                        kPowerlineSNRThreshParam,
                        "Powerline SNR",
                        "Powerline SNR threshold for flagging noisy channels",
@@ -134,6 +144,36 @@ void QualityMonitor::registerParameters()
                        10.0f,
                        0.0f,
                        50.0f,
+                       1.0f);
+
+    addFloatParameter (Parameter::STREAM_SCOPE,
+                       kSpectrumFailChannelPercentageParam,
+                       "Spectrum Channel %",
+                       "Percentage of noisy channels allowed before the spectrum metric fails",
+                       "%",
+                       50.0f,
+                       0.0f,
+                       100.0f,
+                       1.0f);
+
+    addFloatParameter (Parameter::STREAM_SCOPE,
+                       kSnapshotSaturationThresholdParam,
+                       "Snapshot Saturation",
+                       "Voltage threshold for flagging saturated channels in the data snapshot",
+                       "uV",
+                       1000.0f,
+                       1000.0f,
+                       10000.0f,
+                       100.0f);
+
+    addFloatParameter (Parameter::STREAM_SCOPE,
+                       kSnapshotFailChannelPercentageParam,
+                       "Snapshot Channel %",
+                       "Percentage of saturated channels allowed before the snapshot metric fails",
+                       "%",
+                       50.0f,
+                       0.0f,
+                       100.0f,
                        1.0f);
 
     addFloatParameter (Parameter::STREAM_SCOPE,
@@ -147,14 +187,14 @@ void QualityMonitor::registerParameters()
                        0.1f);
 
     addFloatParameter (Parameter::STREAM_SCOPE,
-                       kSpikeLowHzParam,
-                       "Spike Low",
-                       "Spike-rate threshold that marks a channel as low activity",
-                       "Hz",
-                       2.0f,
-                       1.0f,
-                       20.0f,
-                       0.1f);
+                       kSpikeFailChannelPercentageParam,
+                       "Spike Channel %",
+                       "Percentage of low-spike-rate channels allowed before the spike metric fails",
+                       "%",
+                       50.0f,
+                       0.0f,
+                       100.0f,
+                       1.0f);
 }
 
 void QualityMonitor::parameterValueChanged (Parameter* parameter)
@@ -215,34 +255,46 @@ void QualityMonitor::parameterValueChanged (Parameter* parameter)
         return;
     }
 
+    if (name.equalsIgnoreCase (kRmsFailChannelPercentageParam))
+    {
+        setRmsFailChannelPercentage (probeIdx, getFloatParameterValue (parameter, 50.0f));
+        return;
+    }
+
     if (name.equalsIgnoreCase (kPowerlineSNRThreshParam))
     {
         setPowerlineSNRThreshold (probeIdx, getFloatParameterValue (parameter, 10.0f));
         return;
     }
 
-    if (name.equalsIgnoreCase (kSpikeFailHzParam) || name.equalsIgnoreCase (kSpikeLowHzParam))
+    if (name.equalsIgnoreCase (kSpectrumFailChannelPercentageParam))
     {
-        auto* stream = getDataStream (streamId);
-        if (stream == nullptr)
-            return;
+        setSpectrumFailChannelPercentage (probeIdx, getFloatParameterValue (parameter, 50.0f));
+        return;
+    }
 
-        const float failHz = getFloatParameterValue (stream->getParameter (kSpikeFailHzParam), 0.1f);
-        const float lowHz = getFloatParameterValue (stream->getParameter (kSpikeLowHzParam), 2.0f);
+    if (name.equalsIgnoreCase (kSnapshotSaturationThresholdParam))
+    {
+        setSnapshotSaturationThreshold (probeIdx, getFloatParameterValue (parameter, SNAPSHOT_SATURATION_THRESHOLD_UV));
+        return;
+    }
 
-        if (name.equalsIgnoreCase (kSpikeFailHzParam) && failHz > lowHz)
-        {
-            parameter->restorePreviousValue();
-            return;
-        }
+    if (name.equalsIgnoreCase (kSnapshotFailChannelPercentageParam))
+    {
+        setSnapshotFailChannelPercentage (probeIdx, getFloatParameterValue (parameter, 50.0f));
+        return;
+    }
 
-        if (name.equalsIgnoreCase (kSpikeLowHzParam) && lowHz < failHz)
-        {
-            parameter->restorePreviousValue();
-            return;
-        }
+    if (name.equalsIgnoreCase (kSpikeFailHzParam))
+    {
+        setSpikeRateThreshold (probeIdx, getFloatParameterValue (parameter, 0.1f));
+        return;
+    }
 
-        setSpikeRateThresh (probeIdx, failHz, lowHz);
+    if (name.equalsIgnoreCase (kSpikeFailChannelPercentageParam))
+    {
+        setSpikeFailChannelPercentage (probeIdx, getFloatParameterValue (parameter, 50.0f));
+        return;
     }
 }
 
@@ -431,9 +483,13 @@ void QualityMonitor::updateSettings()
             const int nCh = (int) probeChannelIndices[pi].size();
             const int dur = durationSeconds.load();
             auto* rmsThresholdParam = validStreams[pi]->getParameter (kRmsThresholdParam);
+            auto* rmsFailPercentageParam = validStreams[pi]->getParameter (kRmsFailChannelPercentageParam);
             auto* powerlineSNRThreshParam = validStreams[pi]->getParameter (kPowerlineSNRThreshParam);
+            auto* spectrumFailPercentageParam = validStreams[pi]->getParameter (kSpectrumFailChannelPercentageParam);
+            auto* snapshotSaturationThresholdParam = validStreams[pi]->getParameter (kSnapshotSaturationThresholdParam);
+            auto* snapshotFailPercentageParam = validStreams[pi]->getParameter (kSnapshotFailChannelPercentageParam);
             auto* spikeFailHzParam = validStreams[pi]->getParameter (kSpikeFailHzParam);
-            auto* spikeLowHzParam = validStreams[pi]->getParameter (kSpikeLowHzParam);
+            auto* spikeFailPercentageParam = validStreams[pi]->getParameter (kSpikeFailChannelPercentageParam);
             auto* powerlineHzParam = getParameter (kPowerlineHzParam);
 
             auto& currentMetrics = probeMetrics.getReference (pi);
@@ -441,11 +497,14 @@ void QualityMonitor::updateSettings()
             // Rebuild from a clean state so stale metric values and status cannot survive reconfiguration.
             ProbeMetrics resetMetrics;
             resetMetrics.rmsThresholdUV = getFloatParameterValue (rmsThresholdParam, currentMetrics.rmsThresholdUV);
+            resetMetrics.rmsFailChannelPercentage = getFloatParameterValue (rmsFailPercentageParam, currentMetrics.rmsFailChannelPercentage);
             resetMetrics.spikeRateFailHz = getFloatParameterValue (spikeFailHzParam, currentMetrics.spikeRateFailHz);
-            resetMetrics.spikeRateLowHz = std::max (resetMetrics.spikeRateFailHz,
-                                                    getFloatParameterValue (spikeLowHzParam, currentMetrics.spikeRateLowHz));
+            resetMetrics.spikeFailChannelPercentage = getFloatParameterValue (spikeFailPercentageParam, currentMetrics.spikeFailChannelPercentage);
             resetMetrics.powerlineHz = getFloatParameterValue (powerlineHzParam, currentMetrics.powerlineHz);
             resetMetrics.powerlineSNRThresh = getFloatParameterValue (powerlineSNRThreshParam, currentMetrics.powerlineSNRThresh);
+            resetMetrics.spectrumFailChannelPercentage = getFloatParameterValue (spectrumFailPercentageParam, currentMetrics.spectrumFailChannelPercentage);
+            resetMetrics.snapshotSaturationThresholdUV = getFloatParameterValue (snapshotSaturationThresholdParam, currentMetrics.snapshotSaturationThresholdUV);
+            resetMetrics.snapshotFailChannelPercentage = getFloatParameterValue (snapshotFailPercentageParam, currentMetrics.snapshotFailChannelPercentage);
 
             resetMetrics.allocate (nCh, sr, dur);
             resetMetrics.streamName = validStreams[pi]->getName();
@@ -866,6 +925,7 @@ void QualityMonitor::captureSnapshot (int pi, AudioBuffer<float>& buffer)
     const int N = std::min (numSamples, ps.snapshotSamples);
     const int pos = ps.snapshotPos;
     const int wrap = ps.snapshotSamples - pos;
+    const float saturationThresholdUV = probeMetrics[pi].snapshotSaturationThresholdUV;
 
     // Channel-major: at most two contiguous copies per channel to handle the ring wrap
     for (int c = 0; c < nCh; ++c)
@@ -874,7 +934,7 @@ void QualityMonitor::captureSnapshot (int pi, AudioBuffer<float>& buffer)
         float* ring = ps.snapshotRing.data() + c * ps.snapshotSamples;
         uint8_t& saturated = ps.snapshotSaturated[(size_t) c];
         for (int s = 0; s < N; ++s)
-            if (std::abs (src[s]) >= SNAPSHOT_SATURATION_THRESHOLD_UV)
+            if (std::abs (src[s]) >= saturationThresholdUV)
                 saturated = 1;
 
         if (N <= wrap)
@@ -904,13 +964,34 @@ void QualityMonitor::setRmsThreshold (int pi, float uv)
         probeMetrics.getReference (pi).rmsThresholdUV = uv;
 }
 
-void QualityMonitor::setSpikeRateThresh (int pi, float failHz, float lowHz)
+void QualityMonitor::setRmsFailChannelPercentage (int pi, float percentage)
+{
+    std::lock_guard<std::mutex> lock (metricsMutex);
+    if (pi < probeMetrics.size())
+    {
+        auto& metrics = probeMetrics.getReference (pi);
+        metrics.rmsFailChannelPercentage = percentage;
+        metrics.finalizeStatuses();
+    }
+}
+
+void QualityMonitor::setSpikeRateThreshold (int pi, float failHz)
 {
     std::lock_guard<std::mutex> lock (metricsMutex);
     if (pi < probeMetrics.size())
     {
         probeMetrics.getReference (pi).spikeRateFailHz = failHz;
-        probeMetrics.getReference (pi).spikeRateLowHz = lowHz;
+    }
+}
+
+void QualityMonitor::setSpikeFailChannelPercentage (int pi, float percentage)
+{
+    std::lock_guard<std::mutex> lock (metricsMutex);
+    if (pi < probeMetrics.size())
+    {
+        auto& metrics = probeMetrics.getReference (pi);
+        metrics.spikeFailChannelPercentage = percentage;
+        metrics.finalizeStatuses();
     }
 }
 
@@ -919,6 +1000,35 @@ void QualityMonitor::setPowerlineSNRThreshold (int pi, float snrThreshDb)
     std::lock_guard<std::mutex> lock (metricsMutex);
     if (pi < probeMetrics.size())
         probeMetrics.getReference (pi).powerlineSNRThresh = snrThreshDb;
+}
+
+void QualityMonitor::setSpectrumFailChannelPercentage (int pi, float percentage)
+{
+    std::lock_guard<std::mutex> lock (metricsMutex);
+    if (pi < probeMetrics.size())
+    {
+        auto& metrics = probeMetrics.getReference (pi);
+        metrics.spectrumFailChannelPercentage = percentage;
+        metrics.finalizeStatuses();
+    }
+}
+
+void QualityMonitor::setSnapshotSaturationThreshold (int pi, float uv)
+{
+    std::lock_guard<std::mutex> lock (metricsMutex);
+    if (pi < probeMetrics.size())
+        probeMetrics.getReference (pi).snapshotSaturationThresholdUV = uv;
+}
+
+void QualityMonitor::setSnapshotFailChannelPercentage (int pi, float percentage)
+{
+    std::lock_guard<std::mutex> lock (metricsMutex);
+    if (pi < probeMetrics.size())
+    {
+        auto& metrics = probeMetrics.getReference (pi);
+        metrics.snapshotFailChannelPercentage = percentage;
+        metrics.finalizeStatuses();
+    }
 }
 
 void QualityMonitor::setPowerlineHz (float hz)

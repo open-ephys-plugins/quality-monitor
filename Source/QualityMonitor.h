@@ -42,9 +42,13 @@ namespace QualityMonitorParams
 inline constexpr auto kMaskedChannelsParam = "selected_channels";
 inline constexpr auto kPowerlineHzParam = "powerline_hz";
 inline constexpr auto kPowerlineSNRThreshParam = "powerline_snr_thresh_db";
+inline constexpr auto kSpectrumFailChannelPercentageParam = "spectrum_fail_channel_percentage";
 inline constexpr auto kRmsThresholdParam = "rms_threshold_uv";
+inline constexpr auto kRmsFailChannelPercentageParam = "rms_fail_channel_percentage";
+inline constexpr auto kSnapshotSaturationThresholdParam = "snapshot_saturation_threshold_uv";
+inline constexpr auto kSnapshotFailChannelPercentageParam = "snapshot_fail_channel_percentage";
 inline constexpr auto kSpikeFailHzParam = "spike_fail_hz";
-inline constexpr auto kSpikeLowHzParam = "spike_low_hz";
+inline constexpr auto kSpikeFailChannelPercentageParam = "spike_fail_channel_percentage";
 } // namespace QualityMonitorParams
 
 // -- RAII wrapper: owns one r2c FFTW plan + its aligned buffers -------------------------------------------------
@@ -194,8 +198,13 @@ public:
 
     /** Called from UI thread — brief lock, safe to call frequently. */
     void setRmsThreshold (int probeIdx, float uvThresh);
-    void setSpikeRateThresh (int probeIdx, float failHz, float lowHz);
+    void setRmsFailChannelPercentage (int probeIdx, float percentage);
+    void setSpikeRateThreshold (int probeIdx, float failHz);
+    void setSpikeFailChannelPercentage (int probeIdx, float percentage);
     void setPowerlineSNRThreshold (int probeIdx, float snrThreshDb);
+    void setSpectrumFailChannelPercentage (int probeIdx, float percentage);
+    void setSnapshotSaturationThreshold (int probeIdx, float uvThresh);
+    void setSnapshotFailChannelPercentage (int probeIdx, float percentage);
     void setPowerlineHz (float hz);
 
     /** Returns the stream ID backing a probe sidebar entry. */

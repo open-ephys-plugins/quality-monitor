@@ -99,7 +99,7 @@ class RmsHeatmapPanel : public ZoomablePanel
 {
 public:
     RmsHeatmapPanel() = default;
-    void bindThresholdParameter (Parameter* parameter);
+    void bindThresholdParameters (Parameter* thresholdParameter, Parameter* channelPercentageParameter);
     void updateData (const ProbeMetrics& m);
     void paint (Graphics& g) override;
     void resized() override;
@@ -111,11 +111,13 @@ private:
     int rmsHistoryMaxFrames = 150;
     int durationSec = 30;
     float threshUV = 20.0f;
+    float failChannelPercentage = 50.0f;
     int numHighRms = 0;
     float maxRms = 1.0f;
     bool processingDone = false;
     PanelLayoutCache panelLayout;
     std::unique_ptr<BoundedValueParameterEditor> thresholdEditor;
+    std::unique_ptr<BoundedValueParameterEditor> channelPercentageEditor;
     void drawColourBar (Graphics& g, Rectangle<float> r);
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (RmsHeatmapPanel)
@@ -127,7 +129,7 @@ class PowerSpectrumPanel : public ZoomablePanel
 {
 public:
     PowerSpectrumPanel() = default;
-    void bindNoiseThresholdParameter (Parameter* parameter);
+    void bindNoiseThresholdParameters (Parameter* thresholdParameter, Parameter* channelPercentageParameter);
     void updateData (const ProbeMetrics& m);
     void paint (Graphics& g) override;
     void resized() override;
@@ -139,12 +141,14 @@ private:
     float sampleRate = 30000.0f;
     float powerlineHz = 60.0f;
     float powerlineSNRThresh = 10.0f;
+    float failChannelPercentage = 50.0f;
     int numNoisyCh = 0;
     float gMinDb = -120.0f;
     float gMaxDb = 0.0f;
     bool hasData = false;
     PanelLayoutCache panelLayout;
     std::unique_ptr<BoundedValueParameterEditor> noiseThresholdEditor;
+    std::unique_ptr<BoundedValueParameterEditor> channelPercentageEditor;
     void drawColourBar (Graphics& g, Rectangle<float> r);
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PowerSpectrumPanel)
@@ -156,6 +160,7 @@ class DataSnapshotPanel : public ZoomablePanel
 {
 public:
     DataSnapshotPanel() = default;
+    void bindThresholdParameters (Parameter* thresholdParameter, Parameter* channelPercentageParameter);
     void updateData (const ProbeMetrics& m);
     void paint (Graphics& g) override;
     void resized() override;
@@ -166,8 +171,11 @@ private:
     int snapshotSamples = 3000;
     int numSaturatedCh = 0;
     float saturationThresholdUV = SNAPSHOT_SATURATION_THRESHOLD_UV;
+    float failChannelPercentage = 50.0f;
     bool hasData = false;
     PanelLayoutCache panelLayout;
+    std::unique_ptr<BoundedValueParameterEditor> thresholdEditor;
+    std::unique_ptr<BoundedValueParameterEditor> channelPercentageEditor;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (DataSnapshotPanel)
 };
@@ -178,7 +186,7 @@ class SpikeRatePanel : public ZoomablePanel
 {
 public:
     SpikeRatePanel() = default;
-    void bindThresholdParameters (Parameter* failParameter, Parameter* lowParameter);
+    void bindThresholdParameters (Parameter* failParameter, Parameter* channelPercentageParameter);
     void updateData (const ProbeMetrics& m);
     void paint (Graphics& g) override;
     void resized() override;
@@ -191,11 +199,11 @@ private:
     int durationSec = 30;
     bool processingDone = false;
     float spikeFailHz = 0.1f;
-    float spikeLowHz = 2.0f;
+    float failChannelPercentage = 50.0f;
     int numLowCh = 0;
     PanelLayoutCache panelLayout;
     std::unique_ptr<BoundedValueParameterEditor> failThresholdEditor;
-    std::unique_ptr<BoundedValueParameterEditor> lowThresholdEditor;
+    std::unique_ptr<BoundedValueParameterEditor> channelPercentageEditor;
     void drawColourBar (Graphics& g, Rectangle<float> r);
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SpikeRatePanel)

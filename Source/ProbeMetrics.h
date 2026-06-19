@@ -59,6 +59,10 @@ struct ProbeMetrics
     float powerlineHz = 60.0f;
     float powerlineSNRThresh = 10.0f; // dB above median → noisy
     float snapshotSaturationThresholdUV = SNAPSHOT_SATURATION_THRESHOLD_UV;
+    float rmsFailChannelPercentage = 50.0f;
+    float spectrumFailChannelPercentage = 50.0f;
+    float snapshotFailChannelPercentage = 50.0f;
+    float spikeFailChannelPercentage = 50.0f;
 
     // Per-channel metrics (UI-thread copy)
     std::vector<float> rmsUV; // [numChannels]
@@ -126,9 +130,13 @@ struct ProbeMetrics
         std::iota (channelOrder.begin(), channelOrder.end(), 0); // identity by default
     }
 
-    static ProbeStatus passFailFromAlertCount (int count)
+    static ProbeStatus passFailFromAlertPercentage (int count, float failChannelPercentage, int totalChannels)
     {
-        return count > 0 ? ProbeStatus::FAIL : ProbeStatus::PASS;
+        if (totalChannels <= 0)
+            return ProbeStatus::PASS;
+
+        const float percentage = 100.0f * float (count) / float (totalChannels);
+        return percentage > failChannelPercentage ? ProbeStatus::FAIL : ProbeStatus::PASS;
     }
 
     void resetStatuses()
@@ -142,10 +150,10 @@ struct ProbeMetrics
 
     void finalizeStatuses()
     {
-        rmsStatus = passFailFromAlertCount (numHighRmsChannels);
-        spectrumStatus = passFailFromAlertCount (numNoisyChannels);
-        snapshotStatus = passFailFromAlertCount (numSaturatedChannels);
-        spikeStatus = passFailFromAlertCount (numLowSpikeChannels);
+        rmsStatus = passFailFromAlertPercentage (numHighRmsChannels, rmsFailChannelPercentage, numChannels);
+        spectrumStatus = passFailFromAlertPercentage (numNoisyChannels, spectrumFailChannelPercentage, numChannels);
+        snapshotStatus = passFailFromAlertPercentage (numSaturatedChannels, snapshotFailChannelPercentage, numChannels);
+        spikeStatus = passFailFromAlertPercentage (numLowSpikeChannels, spikeFailChannelPercentage, numChannels);
 
         status = (rmsStatus == ProbeStatus::FAIL
                   || spectrumStatus == ProbeStatus::FAIL
