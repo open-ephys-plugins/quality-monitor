@@ -270,14 +270,18 @@ static BoundedValueParameterEditor* bindCompactParameterEditor (std::unique_ptr<
     }
 
     pEditor->setSize (width, PANEL_EDITOR_H);
+    int labelWidth = 70;
 
     if (auto* label = pEditor->getLabel())
-        label->setSize (70, PANEL_EDITOR_H);
+    {
+        labelWidth = GlyphArrangement::getStringWidthInt (label->getFont(), shortLabel) + 5;
+        label->setSize (labelWidth, PANEL_EDITOR_H);
+    }
 
     if (auto* editor = pEditor->getEditor())
     {
-        editor->setSize (width - 72, PANEL_EDITOR_H);
-        editor->setTopLeftPosition (72, 0);
+        editor->setSize (width - labelWidth - 2, PANEL_EDITOR_H);
+        editor->setTopLeftPosition (labelWidth + 2, 0);
     }
 
     return pEditor.get();
@@ -484,8 +488,8 @@ void ZoomablePanel::updateResetButtonBounds()
 
 void RmsHeatmapPanel::bindThresholdParameters (Parameter* thresholdParameter, Parameter* channelPercentageParameter)
 {
-    bindCompactParameterEditor (thresholdEditor, *this, thresholdParameter, "Threshold", PARAM_EDITOR_W);
-    bindCompactParameterEditor (channelPercentageEditor, *this, channelPercentageParameter, "Channel %", PARAM_EDITOR_W);
+    bindCompactParameterEditor (thresholdEditor, *this, thresholdParameter, "RMS Thresh.", PARAM_EDITOR_W);
+    bindCompactParameterEditor (channelPercentageEditor, *this, channelPercentageParameter, "Channel Thresh.", PARAM_EDITOR_W);
     resized();
 }
 
@@ -712,7 +716,7 @@ void RmsHeatmapPanel::paint (Graphics& g)
 void PowerSpectrumPanel::bindNoiseThresholdParameters (Parameter* thresholdParameter, Parameter* channelPercentageParameter)
 {
     bindCompactParameterEditor (noiseThresholdEditor, *this, thresholdParameter, "SNR Thresh.", PARAM_EDITOR_W);
-    bindCompactParameterEditor (channelPercentageEditor, *this, channelPercentageParameter, "Channel %", PARAM_EDITOR_W);
+    bindCompactParameterEditor (channelPercentageEditor, *this, channelPercentageParameter, "Channel Thresh.", PARAM_EDITOR_W);
     resized();
 }
 
@@ -1006,7 +1010,7 @@ void PowerSpectrumPanel::paint (Graphics& g)
 void DataSnapshotPanel::bindThresholdParameters (Parameter* thresholdParameter, Parameter* channelPercentageParameter)
 {
     bindCompactParameterEditor (thresholdEditor, *this, thresholdParameter, "Saturation", PARAM_EDITOR_W);
-    bindCompactParameterEditor (channelPercentageEditor, *this, channelPercentageParameter, "Channel %", PARAM_EDITOR_W);
+    bindCompactParameterEditor (channelPercentageEditor, *this, channelPercentageParameter, "Channel Thresh.", PARAM_EDITOR_W);
     resized();
 }
 
@@ -1241,7 +1245,7 @@ void DataSnapshotPanel::paint (Graphics& g)
 void SpikeRatePanel::bindThresholdParameters (Parameter* failParameter, Parameter* channelPercentageParameter)
 {
     bindCompactParameterEditor (failThresholdEditor, *this, failParameter, "Fail Thresh.", PARAM_EDITOR_W);
-    bindCompactParameterEditor (channelPercentageEditor, *this, channelPercentageParameter, "Channel %", PARAM_EDITOR_W);
+    bindCompactParameterEditor (channelPercentageEditor, *this, channelPercentageParameter, "Channel Thresh.", PARAM_EDITOR_W);
     resized();
 }
 
@@ -1479,16 +1483,9 @@ void ProbeListModel::paintListBoxItem (int row, Graphics& g, int width, int heig
     auto b = Rectangle<int> (0, 0, width, height);
     Colour sc = m.status == ProbeStatus::UNKNOWN ? parent->findColour (ThemeColours::defaultFill) : QCColours::statusCol (m.status);
 
-    if (row % 2 == 0)
-    {
-        g.setColour (parent->findColour (ThemeColours::componentBackground).brighter (0.1f));
-        g.fillRect (b.toFloat());
-    }
-    else
-    {
-        g.setColour (parent->findColour (ThemeColours::componentBackground).darker (0.1f));
-        g.fillRect (b.toFloat());
-    }
+    const float darkerAmt = row % 2 == 0 ? 0.0f : 0.15f;
+    g.setColour (parent->findColour (ThemeColours::componentBackground).darker (darkerAmt));
+    g.fillRect (b.toFloat());
 
     // Row background
     if (rowIsSelected)
@@ -1698,7 +1695,7 @@ QualityMonitorCanvas::QualityMonitorCanvas (QualityMonitor* proc)
     };
     addAndMakeVisible (autoStartBtn.get());
 
-    syncDevicesBtn = std::make_unique<UtilityButton> ("Sync Thresholds");
+    syncDevicesBtn = std::make_unique<UtilityButton> ("Lock Thresholds");
     syncDevicesBtn->setFont (FontOptions ("Inter", "Regular", 14.0f));
     syncDevicesBtn->setClickingTogglesState (true);
     syncDevicesBtn->setToggleState (getBooleanParameterValue (processor->getParameter (QualityMonitorParams::kSyncMatchingDeviceThresholdsParam),
@@ -2231,8 +2228,10 @@ void QualityMonitorCanvas::paint (Graphics& g)
     g.fillRect (SIDEBAR_W - 1, HEADER_H, 1, getHeight() - HEADER_H);
 
     // "Data Streams" label in sidebar
-    g.setColour (findColour (ThemeColours::defaultFill));
+    g.setColour (findColour (ThemeColours::componentBackground).darker (0.25f));
     g.fillRect (0, HEADER_H, SIDEBAR_W - 1, HEADER_H);
+    g.setColour (findColour (ThemeColours::outline));
+    g.fillRect (0, HEADER_H + HEADER_H - 1, SIDEBAR_W - 1, 1);
     g.setColour (findColour (ThemeColours::defaultText));
     g.setFont (interSemiBold (14.0f));
     g.drawText ("DATA STREAMS", 10, HEADER_H, SIDEBAR_W - 12, HEADER_H, Justification::centredLeft);
