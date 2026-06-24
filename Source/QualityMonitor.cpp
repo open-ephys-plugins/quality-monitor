@@ -1026,7 +1026,6 @@ void QualityMonitor::setRmsFailChannelPercentage (int pi, float percentage)
     {
         auto& metrics = probeMetrics.getReference (pi);
         metrics.rmsFailChannelPercentage = percentage;
-        metrics.finalizeStatuses();
     }
 }
 
@@ -1046,7 +1045,6 @@ void QualityMonitor::setSpikeFailChannelPercentage (int pi, float percentage)
     {
         auto& metrics = probeMetrics.getReference (pi);
         metrics.spikeFailChannelPercentage = percentage;
-        metrics.finalizeStatuses();
     }
 }
 
@@ -1064,7 +1062,6 @@ void QualityMonitor::setSpectrumFailChannelPercentage (int pi, float percentage)
     {
         auto& metrics = probeMetrics.getReference (pi);
         metrics.spectrumFailChannelPercentage = percentage;
-        metrics.finalizeStatuses();
     }
 }
 
@@ -1082,7 +1079,6 @@ void QualityMonitor::setSnapshotFailChannelPercentage (int pi, float percentage)
     {
         auto& metrics = probeMetrics.getReference (pi);
         metrics.snapshotFailChannelPercentage = percentage;
-        metrics.finalizeStatuses();
     }
 }
 
@@ -1130,7 +1126,7 @@ void QualityMonitor::applyThresholdToMatchingDeviceStreams (uint16 sourceStreamI
         if (std::abs (targetFloatParameter->getFloatValue() - value) < 1.0e-6f)
             continue;
 
-        targetParameter->setNextValue (value);
+        targetParameter->setNextValue (value, false);
     }
 }
 
