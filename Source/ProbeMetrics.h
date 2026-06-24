@@ -43,6 +43,7 @@ struct ProbeMetrics
 {
     // Identity
     String streamName;
+    String deviceName;
     String serialNumber;
     int numChannels = 0;
     float sampleRate = 30000.0f;

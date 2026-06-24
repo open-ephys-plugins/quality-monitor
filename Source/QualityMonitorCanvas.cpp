@@ -1560,10 +1560,13 @@ void ProbeListModel::paintListBoxItem (int row, Graphics& g, int width, int heig
     g.setFont (interSemiBold (14.0f));
     g.drawText (name, 12, b.getY(), width - 80, height / 2 - 3, Justification::bottomLeft);
 
-    // Channel count
+    // Channel count and device name
     g.setColour (textCol.withAlpha (0.75f));
     g.setFont (interRegular (12.0f));
-    g.drawText (String (m.numChannels) + " ch", 12, b.getY() + height / 2 + 3, width - 96, height / 2 - 3, Justification::topLeft);
+    String secondaryText = String (m.numChannels) + " ch";
+    if (! m.deviceName.isEmpty())
+        secondaryText += " | " + m.deviceName;
+    g.drawText (secondaryText, 12, b.getY() + height / 2 + 3, width - 96, height / 2 - 3, Justification::topLeft);
 
     const std::array<ProbeStatus, 4> plotStatuses { m.rmsStatus, m.spectrumStatus, m.snapshotStatus, m.spikeStatus };
     Rectangle<float> indicatorArea = b.removeFromRight (66).toFloat().reduced (10.0f, 0.0f);

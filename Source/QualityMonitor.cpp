@@ -56,6 +56,17 @@ String getStreamDeviceName (const DataStream* stream)
     return stream->device->getName();
 }
 
+int getProbeIndexForStreamId (uint16 streamId, const std::vector<uint16>& probeStreamIds)
+{
+    for (int probeIdx = 0; probeIdx < (int) probeStreamIds.size(); ++probeIdx)
+    {
+        if (probeStreamIds[(size_t) probeIdx] == streamId)
+            return probeIdx;
+    }
+
+    return -1;
+}
+
 bool isNeuropixels1StreamTypeMatch (const DataStream* sourceStream, const DataStream* targetStream)
 {
     if (sourceStream == nullptr || targetStream == nullptr)
@@ -297,15 +308,7 @@ void QualityMonitor::parameterValueChanged (Parameter* parameter)
         return;
 
     const uint16 streamId = parameter->getStreamId();
-    int probeIdx = -1;
-    for (int i = 0; i < (int) probeStreamIds.size(); ++i)
-    {
-        if (probeStreamIds[(size_t) i] == streamId)
-        {
-            probeIdx = i;
-            break;
-        }
-    }
+    const int probeIdx = getProbeIndexForStreamId (streamId, probeStreamIds);
 
     if (probeIdx < 0)
         return;
@@ -585,6 +588,7 @@ void QualityMonitor::updateSettings()
 
             resetMetrics.allocate (nCh, sr, dur);
             resetMetrics.streamName = validStreams[pi]->getName();
+            resetMetrics.deviceName = getStreamDeviceName (validStreams[pi]);
             resetMetrics.channelOrder = channelOrdersPerStream[pi];
             currentMetrics = std::move (resetMetrics);
         }
