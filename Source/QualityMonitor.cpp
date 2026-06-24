@@ -56,6 +56,28 @@ String getStreamDeviceName (const DataStream* stream)
     return stream->device->getName();
 }
 
+bool isNeuropixels1StreamTypeMatch (const DataStream* sourceStream, const DataStream* targetStream)
+{
+    if (sourceStream == nullptr || targetStream == nullptr)
+        return false;
+
+    if (! getStreamDeviceName (sourceStream).equalsIgnoreCase ("Neuropixels 1.0"))
+        return true;
+
+    const String sourceStreamName = sourceStream->getName();
+    const String targetStreamName = targetStream->getName();
+    const bool sourceIsAp = sourceStreamName.containsIgnoreCase ("-AP");
+    const bool sourceIsLfp = sourceStreamName.containsIgnoreCase ("-LFP");
+
+    if (! sourceIsAp && ! sourceIsLfp)
+        return true;
+
+    if (sourceIsAp)
+        return targetStreamName.containsIgnoreCase ("-AP");
+
+    return targetStreamName.containsIgnoreCase ("-LFP");
+}
+
 static constexpr const char* syncedThresholdParameterNames[] = {
     kRmsThresholdParam,
     kRmsFailChannelPercentageParam,
@@ -225,7 +247,7 @@ void QualityMonitor::registerParameters()
 
     addBooleanParameter (Parameter::PROCESSOR_SCOPE,
                          kSyncMatchingDeviceThresholdsParam,
-                         "Sync Matching Devices",
+                         "Lock Thresholds",
                          "Apply stream threshold changes to streams whose device names match",
                          false);
 }
@@ -1116,6 +1138,9 @@ void QualityMonitor::applyThresholdToMatchingDeviceStreams (uint16 sourceStreamI
             continue;
 
         if (getStreamDeviceName (stream) != sourceDeviceName)
+            continue;
+
+        if (! isNeuropixels1StreamTypeMatch (sourceStream, stream))
             continue;
 
         auto* targetParameter = stream->getParameter (parameterName);
