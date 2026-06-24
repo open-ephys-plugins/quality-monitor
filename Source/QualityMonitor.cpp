@@ -39,6 +39,33 @@ float getFloatParameterValue (Parameter* parameter, float fallback)
 
     return fallback;
 }
+
+bool getBoolParameterValue (Parameter* parameter, bool fallback)
+{
+    if (auto* booleanParameter = dynamic_cast<BooleanParameter*> (parameter))
+        return booleanParameter->getBoolValue();
+
+    return fallback;
+}
+
+String getStreamDeviceName (const DataStream* stream)
+{
+    if (stream == nullptr || stream->device == nullptr)
+        return {};
+
+    return stream->device->getName();
+}
+
+static constexpr const char* syncedThresholdParameterNames[] = {
+    kRmsThresholdParam,
+    kRmsFailChannelPercentageParam,
+    kPowerlineSNRThreshParam,
+    kSpectrumFailChannelPercentageParam,
+    kSnapshotSaturationThresholdParam,
+    kSnapshotFailChannelPercentageParam,
+    kSpikeFailHzParam,
+    kSpikeFailChannelPercentageParam
+};
 } // namespace
 
 // ── ProbeProcessingState::allocate() ─────────────────────────────────────────
@@ -195,6 +222,12 @@ void QualityMonitor::registerParameters()
                        0.0f,
                        100.0f,
                        1.0f);
+
+    addBooleanParameter (Parameter::PROCESSOR_SCOPE,
+                         kSyncMatchingDeviceThresholdsParam,
+                         "Sync Matching Devices",
+                         "Apply stream threshold changes to streams whose device names match",
+                         false);
 }
 
 void QualityMonitor::parameterValueChanged (Parameter* parameter)
@@ -232,6 +265,12 @@ void QualityMonitor::parameterValueChanged (Parameter* parameter)
         return;
     }
 
+    if (name.equalsIgnoreCase (kSyncMatchingDeviceThresholdsParam))
+    {
+        setSyncMatchingDeviceThresholds (getBoolParameterValue (parameter, false));
+        return;
+    }
+
     if (parameter->getScope() != Parameter::STREAM_SCOPE)
         return;
 
@@ -251,49 +290,65 @@ void QualityMonitor::parameterValueChanged (Parameter* parameter)
 
     if (name.equalsIgnoreCase (kRmsThresholdParam))
     {
-        setRmsThreshold (probeIdx, getFloatParameterValue (parameter, 20.0f));
+        const float value = getFloatParameterValue (parameter, 20.0f);
+        setRmsThreshold (probeIdx, value);
+        applyThresholdToMatchingDeviceStreams (streamId, name, value);
         return;
     }
 
     if (name.equalsIgnoreCase (kRmsFailChannelPercentageParam))
     {
-        setRmsFailChannelPercentage (probeIdx, getFloatParameterValue (parameter, 50.0f));
+        const float value = getFloatParameterValue (parameter, 50.0f);
+        setRmsFailChannelPercentage (probeIdx, value);
+        applyThresholdToMatchingDeviceStreams (streamId, name, value);
         return;
     }
 
     if (name.equalsIgnoreCase (kPowerlineSNRThreshParam))
     {
-        setPowerlineSNRThreshold (probeIdx, getFloatParameterValue (parameter, 10.0f));
+        const float value = getFloatParameterValue (parameter, 10.0f);
+        setPowerlineSNRThreshold (probeIdx, value);
+        applyThresholdToMatchingDeviceStreams (streamId, name, value);
         return;
     }
 
     if (name.equalsIgnoreCase (kSpectrumFailChannelPercentageParam))
     {
-        setSpectrumFailChannelPercentage (probeIdx, getFloatParameterValue (parameter, 50.0f));
+        const float value = getFloatParameterValue (parameter, 50.0f);
+        setSpectrumFailChannelPercentage (probeIdx, value);
+        applyThresholdToMatchingDeviceStreams (streamId, name, value);
         return;
     }
 
     if (name.equalsIgnoreCase (kSnapshotSaturationThresholdParam))
     {
-        setSnapshotSaturationThreshold (probeIdx, getFloatParameterValue (parameter, SNAPSHOT_SATURATION_THRESHOLD_UV));
+        const float value = getFloatParameterValue (parameter, SNAPSHOT_SATURATION_THRESHOLD_UV);
+        setSnapshotSaturationThreshold (probeIdx, value);
+        applyThresholdToMatchingDeviceStreams (streamId, name, value);
         return;
     }
 
     if (name.equalsIgnoreCase (kSnapshotFailChannelPercentageParam))
     {
-        setSnapshotFailChannelPercentage (probeIdx, getFloatParameterValue (parameter, 50.0f));
+        const float value = getFloatParameterValue (parameter, 50.0f);
+        setSnapshotFailChannelPercentage (probeIdx, value);
+        applyThresholdToMatchingDeviceStreams (streamId, name, value);
         return;
     }
 
     if (name.equalsIgnoreCase (kSpikeFailHzParam))
     {
-        setSpikeRateThreshold (probeIdx, getFloatParameterValue (parameter, 0.1f));
+        const float value = getFloatParameterValue (parameter, 0.1f);
+        setSpikeRateThreshold (probeIdx, value);
+        applyThresholdToMatchingDeviceStreams (streamId, name, value);
         return;
     }
 
     if (name.equalsIgnoreCase (kSpikeFailChannelPercentageParam))
     {
-        setSpikeFailChannelPercentage (probeIdx, getFloatParameterValue (parameter, 50.0f));
+        const float value = getFloatParameterValue (parameter, 50.0f);
+        setSpikeFailChannelPercentage (probeIdx, value);
+        applyThresholdToMatchingDeviceStreams (streamId, name, value);
         return;
     }
 }
@@ -1038,6 +1093,70 @@ void QualityMonitor::setPowerlineHz (float hz)
         metrics.powerlineHz = hz;
 }
 
+void QualityMonitor::applyThresholdToMatchingDeviceStreams (uint16 sourceStreamId, const String& parameterName, float value)
+{
+    if (! syncMatchingDeviceThresholds.load() || applyingMatchedDeviceThresholds)
+        return;
+
+    const auto dataStreams = getDataStreams();
+    const DataStream* sourceStream = nullptr;
+    for (auto* stream : dataStreams)
+    {
+        if (stream != nullptr && stream->getStreamId() == sourceStreamId)
+        {
+            sourceStream = stream;
+            break;
+        }
+    }
+
+    const String sourceDeviceName = getStreamDeviceName (sourceStream);
+    if (sourceDeviceName.isEmpty())
+        return;
+
+    ScopedValueSetter<bool> guard (applyingMatchedDeviceThresholds, true);
+    for (auto* stream : dataStreams)
+    {
+        if (stream == nullptr || stream->getStreamId() == sourceStreamId)
+            continue;
+
+        if (getStreamDeviceName (stream) != sourceDeviceName)
+            continue;
+
+        auto* targetParameter = stream->getParameter (parameterName);
+        auto* targetFloatParameter = dynamic_cast<FloatParameter*> (targetParameter);
+        if (targetFloatParameter == nullptr)
+            continue;
+
+        if (std::abs (targetFloatParameter->getFloatValue() - value) < 1.0e-6f)
+            continue;
+
+        targetParameter->setNextValue (value);
+    }
+}
+
+void QualityMonitor::syncThresholdsToMatchingDeviceStreams (int probeIdx)
+{
+    if (! syncMatchingDeviceThresholds.load())
+        return;
+
+    const uint16 sourceStreamId = getProbeStreamId (probeIdx);
+    if (sourceStreamId == 0)
+        return;
+
+    auto* sourceStream = getDataStream (sourceStreamId);
+    if (sourceStream == nullptr || getStreamDeviceName (sourceStream).isEmpty())
+        return;
+
+    for (auto* parameterName : syncedThresholdParameterNames)
+    {
+        auto* sourceParameter = dynamic_cast<FloatParameter*> (sourceStream->getParameter (parameterName));
+        if (sourceParameter == nullptr)
+            continue;
+
+        applyThresholdToMatchingDeviceStreams (sourceStreamId, parameterName, sourceParameter->getFloatValue());
+    }
+}
+
 uint16 QualityMonitor::getProbeStreamId (int probeIdx) const
 {
     if (probeIdx < 0 || probeIdx >= (int) probeStreamIds.size())
@@ -1082,6 +1201,11 @@ void QualityMonitor::stopProcessing()
 void QualityMonitor::setAutoStart (bool enabled)
 {
     autoStartProcessing.store (enabled);
+}
+
+void QualityMonitor::setSyncMatchingDeviceThresholds (bool enabled)
+{
+    syncMatchingDeviceThresholds.store (enabled);
 }
 
 void QualityMonitor::doStartProcessing()

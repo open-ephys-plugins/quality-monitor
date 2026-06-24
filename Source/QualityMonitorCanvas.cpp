@@ -129,6 +129,14 @@ static Font interRegular (float size) { return Font (FontOptions ("Inter", "Regu
 static Font interSemiBold (float size) { return Font (FontOptions ("Inter", "Semi Bold", size)); }
 static Font firaCodeRegular (float size) { return Font (FontOptions ("Fira Code", "Regular", size)); }
 
+static bool getBooleanParameterValue (Parameter* parameter, bool fallback)
+{
+    if (auto* booleanParameter = dynamic_cast<BooleanParameter*> (parameter))
+        return booleanParameter->getBoolValue();
+
+    return fallback;
+}
+
 static String probeStatusToString (ProbeStatus status)
 {
     switch (status)
@@ -1349,7 +1357,7 @@ void SpikeRatePanel::paint (Graphics& g)
     const auto cbarBounds = panelLayout.colourBarBounds.toFloat();
 
     if (numCh > 0 && ! panelLayout.badgeBounds.isEmpty())
-        drawPercentageBadge (g, panelLayout.badgeBounds, numLowCh, numCh, failChannelPercentage, "below spike");
+        drawPercentageBadge (g, panelLayout.badgeBounds, numLowCh, numCh, failChannelPercentage, "below min spike rate");
 
     const int pw_i = pb.getWidth();
     const int ph_i = pb.getHeight();
@@ -1689,6 +1697,26 @@ QualityMonitorCanvas::QualityMonitorCanvas (QualityMonitor* proc)
         processor->setAutoStart (autoStartBtn->getToggleState());
     };
     addAndMakeVisible (autoStartBtn.get());
+
+    syncDevicesBtn = std::make_unique<UtilityButton> ("Sync Thresholds");
+    syncDevicesBtn->setFont (FontOptions ("Inter", "Regular", 14.0f));
+    syncDevicesBtn->setClickingTogglesState (true);
+    syncDevicesBtn->setToggleState (getBooleanParameterValue (processor->getParameter (QualityMonitorParams::kSyncMatchingDeviceThresholdsParam),
+                                                              processor->getSyncMatchingDeviceThresholds()),
+                                    dontSendNotification);
+    syncDevicesBtn->setTooltip ("Copy threshold edits to streams with the same device name");
+    syncDevicesBtn->onClick = [this]
+    {
+        const bool enabled = syncDevicesBtn->getToggleState();
+        processor->setSyncMatchingDeviceThresholds (enabled);
+
+        if (auto* parameter = processor->getParameter (QualityMonitorParams::kSyncMatchingDeviceThresholdsParam))
+            parameter->setNextValue (enabled);
+
+        if (enabled)
+            processor->syncThresholdsToMatchingDeviceStreams (selectedProbe);
+    };
+    addAndMakeVisible (syncDevicesBtn.get());
 
     captureBtn = std::make_unique<TextButton> ("Capture");
     captureBtn->setColour (TextButton::buttonColourId, Colour (0xff1976d2));
@@ -2078,7 +2106,7 @@ void QualityMonitorCanvas::saveCurrentRunArtifacts()
 
     root.setProperty ("generated_at", now.toISO8601 (true));
     root.setProperty ("stream_count", probes.size());
-    root.setProperty ("analysis_duration_sec", durationCombo->getText());
+    root.setProperty ("analysis_duration_sec", durationCombo->getText().removeCharacters (" s").getIntValue());
     root.setProperty ("streams", probes);
 
     const File metricsFile = exportDir.getChildFile ("quality_metrics.json");
@@ -2144,7 +2172,8 @@ void QualityMonitorCanvas::layoutPanels()
     // Sidebar
     auto sb = b.removeFromLeft (SIDEBAR_W);
     // "PROBES" label occupies top 22 px; ListBox fills the rest
-    sb.removeFromTop (30);
+    syncDevicesBtn->setBounds (sb.getRight() - 120, sb.getY() + 6, 110, HEADER_H - 12);
+    sb.removeFromTop (HEADER_H);
     sb.setHeight (probeListBox->getRowHeight() * probeListModel->getNumRows() + 2);
     probeListBox->setBounds (sb.reduced (1, 0));
 
@@ -2203,8 +2232,8 @@ void QualityMonitorCanvas::paint (Graphics& g)
 
     // "Data Streams" label in sidebar
     g.setColour (findColour (ThemeColours::defaultFill));
-    g.fillRect (0, HEADER_H, SIDEBAR_W - 1, 30);
+    g.fillRect (0, HEADER_H, SIDEBAR_W - 1, HEADER_H);
     g.setColour (findColour (ThemeColours::defaultText));
     g.setFont (interSemiBold (14.0f));
-    g.drawText ("DATA STREAMS", 10, HEADER_H, SIDEBAR_W - 12, 30, Justification::centredLeft);
+    g.drawText ("DATA STREAMS", 10, HEADER_H, SIDEBAR_W - 12, HEADER_H, Justification::centredLeft);
 }

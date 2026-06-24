@@ -49,6 +49,7 @@ inline constexpr auto kSnapshotSaturationThresholdParam = "snapshot_saturation_t
 inline constexpr auto kSnapshotFailChannelPercentageParam = "snapshot_fail_channel_percentage";
 inline constexpr auto kSpikeFailHzParam = "spike_fail_hz";
 inline constexpr auto kSpikeFailChannelPercentageParam = "spike_fail_channel_percentage";
+inline constexpr auto kSyncMatchingDeviceThresholdsParam = "sync_matching_device_thresholds";
 } // namespace QualityMonitorParams
 
 // -- RAII wrapper: owns one r2c FFTW plan + its aligned buffers -------------------------------------------------
@@ -230,6 +231,15 @@ public:
     /** Enable or disable automatic processing start on acquisition. */
     void setAutoStart (bool enabled);
 
+    /** Enable or disable copying threshold edits to streams with the same device name. */
+    void setSyncMatchingDeviceThresholds (bool enabled);
+
+    /** Copies the selected probe's threshold settings to streams with the same device name. */
+    void syncThresholdsToMatchingDeviceStreams (int probeIdx);
+
+    /** Returns whether threshold edits are copied to streams with the same device name. */
+    bool getSyncMatchingDeviceThresholds() const { return syncMatchingDeviceThresholds.load(); }
+
     /** True while analysis is running (between startProcessing and allDone). */
     bool isProcessingActive() const { return processingHasStarted.load(); }
 
@@ -239,7 +249,9 @@ private:
     std::mutex metricsMutex;
     std::atomic<int> durationSeconds { 30 };
     std::atomic<bool> autoStartProcessing { true };
+    std::atomic<bool> syncMatchingDeviceThresholds { false };
     std::atomic<bool> processingHasStarted { false };
+    bool applyingMatchedDeviceThresholds = false;
 
     std::vector<std::vector<int>> probeChannelIndices; // global buffer indices of DATA channels per stream
     std::vector<uint16> probeStreamIds; // stream ID for each probe (for per-stream sample count)
@@ -249,6 +261,8 @@ private:
     void finalizeFFT (int pi);
     void finalizeSpikes (int pi);
     void captureSnapshot (int pi, AudioBuffer<float>& buf);
+
+    void applyThresholdToMatchingDeviceStreams (uint16 sourceStreamId, const String& parameterName, float value);
 
     /** Shared reset + start logic used by both startAcquisition and startProcessing. */
     void doStartProcessing();
