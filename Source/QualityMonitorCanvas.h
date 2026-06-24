@@ -314,7 +314,6 @@ private:
     std::unique_ptr<Label> durationLabel;
     std::unique_ptr<ComboBox> durationCombo;
     std::unique_ptr<ToggleButton> autoStartBtn;
-    std::unique_ptr<UtilityButton> syncDevicesBtn;
     std::unique_ptr<TextButton> captureBtn;
     std::unique_ptr<TextButton> saveBtn;
     std::unique_ptr<Button> layoutGridBtn;

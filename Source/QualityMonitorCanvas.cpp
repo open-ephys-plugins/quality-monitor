@@ -287,6 +287,63 @@ static BoundedValueParameterEditor* bindCompactParameterEditor (std::unique_ptr<
     return pEditor.get();
 }
 
+class LockDeviceThresholdsParameterEditor : public ParameterEditor,
+                                            public Button::Listener
+{
+public:
+    LockDeviceThresholdsParameterEditor (Parameter* parameter,
+                                         std::function<void (bool)> onToggle_)
+        : ParameterEditor (parameter),
+          onToggle (std::move (onToggle_))
+    {
+        button = std::make_unique<UtilityButton> ("Lock Thresholds");
+        button->setFont (FontOptions ("Inter", "Regular", 14.0f));
+        button->setClickingTogglesState (true);
+        button->setTooltip ("Copy threshold edits to streams with the same device name");
+        button->addListener (this);
+        addAndMakeVisible (button.get());
+
+        editor = button.get();
+        updateView();
+    }
+
+    ~LockDeviceThresholdsParameterEditor() override
+    {
+        if (button != nullptr)
+            button->removeListener (this);
+    }
+
+    void buttonClicked (Button* clickedButton) override
+    {
+        if (clickedButton != button.get() || param == nullptr)
+            return;
+
+        const bool enabled = button->getToggleState();
+        param->setNextValue (enabled);
+
+        if (onToggle)
+            onToggle (enabled);
+    }
+
+    void updateView() override
+    {
+        const bool enabled = getBooleanParameterValue (param, false);
+        button->setToggleState (enabled, dontSendNotification);
+        button->setEnabled (param != nullptr ? param->isEnabled() : false);
+    }
+
+    void resized() override
+    {
+        button->setBounds (getLocalBounds());
+    }
+
+private:
+    std::unique_ptr<UtilityButton> button;
+    std::function<void (bool)> onToggle;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (LockDeviceThresholdsParameterEditor)
+};
+
 // Maps a pixel y coordinate to a channel index, based on the current view range and total height.
 // Channels are indexed in display order (highest at the top), not original order.
 static int channelForPixelRow (int y, int height, int viewChStart, int viewChEnd)
@@ -1695,25 +1752,15 @@ QualityMonitorCanvas::QualityMonitorCanvas (QualityMonitor* proc)
     };
     addAndMakeVisible (autoStartBtn.get());
 
-    syncDevicesBtn = std::make_unique<UtilityButton> ("Lock Thresholds");
-    syncDevicesBtn->setFont (FontOptions ("Inter", "Regular", 14.0f));
-    syncDevicesBtn->setClickingTogglesState (true);
-    syncDevicesBtn->setToggleState (getBooleanParameterValue (processor->getParameter (QualityMonitorParams::kSyncMatchingDeviceThresholdsParam),
-                                                              processor->getSyncMatchingDeviceThresholds()),
-                                    dontSendNotification);
-    syncDevicesBtn->setTooltip ("Copy threshold edits to streams with the same device name");
-    syncDevicesBtn->onClick = [this]
-    {
-        const bool enabled = syncDevicesBtn->getToggleState();
-        processor->setSyncMatchingDeviceThresholds (enabled);
-
-        if (auto* parameter = processor->getParameter (QualityMonitorParams::kSyncMatchingDeviceThresholdsParam))
-            parameter->setNextValue (enabled);
-
-        if (enabled)
-            processor->syncThresholdsToMatchingDeviceStreams (selectedProbe);
-    };
-    addAndMakeVisible (syncDevicesBtn.get());
+    LockDeviceThresholdsParameterEditor* lockThresholdsBtn = new LockDeviceThresholdsParameterEditor (
+        processor->getParameter (QualityMonitorParams::kSyncMatchingDeviceThresholdsParam),
+        [this] (bool enabled)
+        {
+            if (enabled)
+                processor->syncThresholdsToMatchingDeviceStreams (selectedProbe);
+        });
+    lockThresholdsBtn->setSize (110, 24);
+    addParameterEditor (lockThresholdsBtn, SIDEBAR_W - 120, HEADER_H + 6);
 
     captureBtn = std::make_unique<TextButton> ("Capture");
     captureBtn->setColour (TextButton::buttonColourId, Colour (0xff1976d2));
@@ -2169,7 +2216,6 @@ void QualityMonitorCanvas::layoutPanels()
     // Sidebar
     auto sb = b.removeFromLeft (SIDEBAR_W);
     // "PROBES" label occupies top 22 px; ListBox fills the rest
-    syncDevicesBtn->setBounds (sb.getRight() - 120, sb.getY() + 6, 110, HEADER_H - 12);
     sb.removeFromTop (HEADER_H);
     sb.setHeight (probeListBox->getRowHeight() * probeListModel->getNumRows() + 2);
     probeListBox->setBounds (sb.reduced (1, 0));
