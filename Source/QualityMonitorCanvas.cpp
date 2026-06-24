@@ -1708,7 +1708,7 @@ QualityMonitorCanvas::QualityMonitorCanvas (QualityMonitor* proc)
     { selectProbe (idx); };
 
     probeListBox = std::make_unique<ListBox> ("ProbeList", probeListModel.get());
-    probeListBox->setRowHeight (52);
+    probeListBox->setRowHeight (60);
     probeListBox->setMultipleSelectionEnabled (false);
     // probeListBox->setColour (ListBox::backgroundColourId,     Colour (0));
     // probeListBox->setColour (ListBox::outlineColourId,        Colour (0));
