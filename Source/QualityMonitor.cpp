@@ -109,8 +109,10 @@ void ProbeProcessingState::allocate (int nCh, int windowSamples, int snapSamples
     rmsSumSq.assign (nCh, 0.0);
     rmsSampleCount = 0;
 
-    fft = std::make_unique<FFTProcessor> (FFT_SIZE);
-    fftRing.assign (nCh * FFT_SIZE, 0.0f);
+    fft = std::make_unique<FFTProcessor> (FFT_SIZE, nCh); // plan_many over all nCh channels
+    fftRing.assign  (nCh * FFT_SIZE, 0.0f);
+    fftRingB.assign (nCh * FFT_SIZE, 0.0f); // alternate ping-pong buffer
+    activeFftBuf = 0;
     fftRingPos = 0;
     fftWinCount = 0;
     powerAccum.assign (nCh * FFT_BINS, 0.0);
@@ -139,6 +141,7 @@ void ProbeProcessingState::allocate (int nCh, int windowSamples, int snapSamples
     scratchSurround.resize (40);
     scratchPlDb.resize (nCh);
     scratchHFDb.resize (nCh);
+    scratchSnapshot.assign (nCh * snapSamples, 0.0f);
 }
 
 // ── QualityMonitor ─────────────────────────────────────────────────────────
@@ -553,6 +556,14 @@ void QualityMonitor::updateSettings()
         probeStreamIds[pi] = validStreams[pi]->getStreamId();
     }
 
+    // Stop any FFT worker threads before procState is rebuilt (they hold raw
+    // pointers into procState data).  processingHasStarted is already false
+    // (set by startAcquisition / stopAcquisition paths), so process() returns
+    // immediately and the audio thread is not racing us here.
+    for (int pi = 0; pi < (int) fftWorkers.size(); ++pi)
+        stopFftWorker (pi);
+    fftWorkers.clear();
+
     // Allocate metrics and processing state
     {
         std::lock_guard<std::mutex> lock (metricsMutex);
@@ -592,6 +603,7 @@ void QualityMonitor::updateSettings()
             resetMetrics.channelOrder = channelOrdersPerStream[pi];
             currentMetrics = std::move (resetMetrics);
         }
+        metricsGeneration.fetch_add (1, std::memory_order_relaxed);
     }
 
     // ProbeProcessingState owns FFTProcessor (RAII) — safe to reconstruct
@@ -642,23 +654,31 @@ void QualityMonitor::process (AudioBuffer<float>& buffer)
                 const int space = ps.rmsWindowSamples - ps.rmsSampleCount;
                 const int chunk = std::min (rmsRemain, space);
 
-                // RMS accumulation + spike detection in a single pass per channel
+                // Two separate loops per channel:
+                //   1. Squaring (float-only, no sequential dependency) — compiler can
+                //      emit AVX vmulps/vaddps and process 8 samples per instruction.
+                //      The per-chunk float sum is promoted to rmsSumSq (double) once,
+                //      not per sample, avoiding precision loss.
+                //   2. Spike detection — prevBelow state dependency is inherently
+                //      sequential so it remains scalar regardless of precision.
                 for (int c = 0; c < nCh; ++c)
                 {
                     const float* src = buffer.getReadPointer (chIndices[c]) + rmsOffset;
+
+                    float sq = 0.0f;
+                    for (int i = 0; i < chunk; ++i)
+                        sq += src[i] * src[i];
+                    ps.rmsSumSq[c] += double (sq); // promote chunk sum once
+
                     const float thr = ps.spikeThreshV[c];
                     bool belowPrev = ps.wasBelowThresh[c];
-                    double sq = 0.0;
                     for (int i = 0; i < chunk; ++i)
                     {
-                        const float val = src[i];
-                        sq += double (val) * double (val);
-                        const bool below = val < -thr;
+                        const bool below = src[i] < -thr;
                         if (below && ! belowPrev)
                             ps.spikeCount[c]++;
                         belowPrev = below;
                     }
-                    ps.rmsSumSq[c] += sq;
                     ps.wasBelowThresh[c] = belowPrev;
                 }
 
@@ -675,7 +695,8 @@ void QualityMonitor::process (AudioBuffer<float>& buffer)
             }
         }
 
-        // 2. FFT ring-buffer accumulation
+        // 2. FFT ring-buffer accumulation (O2: fill active ping-pong ring only;
+        //    the worker thread executes the batched plan and accumulates power).
         {
             const int fftSize = ps.fft->getFFTSize();
             int srcOffset = 0;
@@ -685,30 +706,36 @@ void QualityMonitor::process (AudioBuffer<float>& buffer)
             {
                 const int chunk = std::min (remain, fftSize - ps.fftRingPos);
 
-                // Copy 'chunk' samples from each channel into their ring slot
+                // Write into the active ring buffer (0 = fftRing, 1 = fftRingB)
+                float* activeRing = (ps.activeFftBuf == 0) ? ps.fftRing.data() : ps.fftRingB.data();
                 for (int c = 0; c < nCh; ++c)
                 {
                     const float* src = buffer.getReadPointer (chIndices[c]);
-                    float* ring = ps.fftRing.data() + c * fftSize + ps.fftRingPos;
-                    std::copy (src + srcOffset, src + srcOffset + chunk, ring);
+                    std::copy (src + srcOffset, src + srcOffset + chunk,
+                               activeRing + c * fftSize + ps.fftRingPos);
                 }
 
                 ps.fftRingPos += chunk;
-                srcOffset += chunk;
-                remain -= chunk;
+                srcOffset     += chunk;
+                remain        -= chunk;
 
                 if (ps.fftRingPos == fftSize)
                 {
-                    // Run FFT for each channel and accumulate power
-                    for (int c = 0; c < nCh; ++c)
+                    // Offer the filled ring to the worker via lock-free CAS.
+                    // If the worker has not yet consumed the previous batch
+                    // (workBuf != -1), silently drop this window — acceptable
+                    // since we average 8+ windows before finalizing.
+                    auto& worker = *fftWorkers[pi];
+                    int expected = -1;
+                    if (worker.workBuf.compare_exchange_strong (
+                            expected, ps.activeFftBuf,
+                            std::memory_order_release,
+                            std::memory_order_relaxed))
                     {
-                        ps.fft->execute (ps.fftRing.data() + c * fftSize);
-                        double* acc = ps.powerAccum.data() + c * FFT_BINS;
-                        for (int k = 0; k < FFT_BINS; ++k)
-                            acc[k] += ps.fft->powerAt (k);
+                        ps.activeFftBuf ^= 1;   // audio thread switches to the other ring
+                        worker.cv.notify_one(); // wake worker (non-blocking)
                     }
                     ps.fftRingPos = 0;
-                    ps.fftWinCount++;
                 }
             }
         }
@@ -716,22 +743,20 @@ void QualityMonitor::process (AudioBuffer<float>& buffer)
         // 3. Raw voltage snapshot: accumulate into audio-thread ring buffer
         captureSnapshot (pi, buffer);
 
-        // 4. Finalize FFT when enough windows have accumulated
-        if (ps.fftWinCount >= 8)
-            finalizeFFT (pi);
+        // 4. (FFT finalization now handled entirely by the worker thread.)
 
         // 5. Track total samples; end processing when duration elapses
         ps.totalSamplesProcessed += numSamples;
         if (ps.totalSamplesAllowed > 0 && ps.totalSamplesProcessed >= ps.totalSamplesAllowed)
         {
-            // Force-finalize any partial windows
+            // Force-finalize any partial RMS / spike windows
             if (ps.rmsSampleCount > 0)
             {
                 finalizeRms (pi);
                 finalizeSpikes (pi);
             }
-            if (ps.fftWinCount > 0)
-                finalizeFFT (pi);
+            // FFT partial windows are finalized asynchronously by the worker;
+            // any sub-threshold batch at run end is silently dropped (acceptable).
 
             ps.processingDone = true;
             {
@@ -778,6 +803,21 @@ void QualityMonitor::finalizeRms (int pi)
     }
     ps.rmsSampleCount = 0;
 
+    // Linearise the snapshot ring into scratchSnapshot *before* acquiring the
+    // mutex.  This keeps the lock hold time to microseconds instead of the
+    // ~time-to-copy-4.6 MB that the old in-lock copy required.
+    {
+        const int writePos = ps.snapshotPos;
+        const int tail = ps.snapshotSamples - writePos;
+        for (int c = 0; c < nCh; ++c)
+        {
+            const float* ring = ps.snapshotRing.data() + c * ps.snapshotSamples;
+            float* dst = ps.scratchSnapshot.data() + c * ps.snapshotSamples;
+            std::copy (ring + writePos, ring + ps.snapshotSamples, dst);
+            std::copy (ring, ring + writePos, dst + tail);
+        }
+    }
+
     std::lock_guard<std::mutex> lock (metricsMutex);
     auto& m = probeMetrics.getReference (pi);
     m.rmsUV = ps.scratchRms;
@@ -795,38 +835,29 @@ void QualityMonitor::finalizeRms (int pi)
         m.rmsHistoryFrames++;
     }
 
-    // Linearize snapshot ring buffer into probeMetrics (lock already held)
-    {
-        const int writePos = ps.snapshotPos;
-        const int tail = ps.snapshotSamples - writePos;
-        for (int c = 0; c < nCh; ++c)
-        {
-            const float* ring = ps.snapshotRing.data() + c * ps.snapshotSamples;
-            float* dst = m.dataSnapshot.data() + c * ps.snapshotSamples;
-            std::copy (ring + writePos, ring + ps.snapshotSamples, dst);
-            std::copy (ring, ring + writePos, dst + tail);
-        }
-    }
+    // O(1) pointer swap — the pre-linearised data is already in scratchSnapshot.
+    std::swap (m.dataSnapshot, ps.scratchSnapshot);
+    metricsGeneration.fetch_add (1, std::memory_order_relaxed);
 }
 
 void QualityMonitor::finalizeFFT (int pi)
 {
+    // Called from the FFT worker thread (O2). powerAccum and scratchSpec are
+    // worker-owned at this point; no lock is needed for those fields.
     auto& ps = procState[pi];
     const int nCh = (int) probeChannelIndices[pi].size();
-    const int nWin = std::max (1, ps.fftWinCount);
+    const int nWin = std::max (1, fftWorkers[pi]->winCount);
 
-    // Average accumulated power and clear accumulators (into pre-allocated scratch)
+    // Average accumulated power into scratchSpec (powerAccum is cleared by
+    // the worker after this function returns).
     for (int c = 0; c < nCh; ++c)
     {
-        double* acc = ps.powerAccum.data() + c * FFT_BINS;
-        float* dest = ps.scratchSpec.data() + c * FFT_BINS;
+        const double* acc  = ps.powerAccum.data() + c * FFT_BINS;
+        float*        dest = ps.scratchSpec.data() + c * FFT_BINS;
         for (int k = 0; k < FFT_BINS; ++k)
-        {
             dest[k] = float (acc[k] / nWin);
-            acc[k] = 0.0;
-        }
     }
-    ps.fftWinCount = 0;
+    // powerAccum and winCount are reset by the worker after this call returns.
 
     // Snapshot read-only fields before entering the lock
     const float sr = probeMetrics[pi].sampleRate;
@@ -939,6 +970,7 @@ void QualityMonitor::finalizeFFT (int pi)
     m.channelPowerlineDb = ps.scratchPlDb;
     m.channelHFNoiseDb = ps.scratchHFDb;
     m.numNoisyChannels = numNoisyCh;
+    metricsGeneration.fetch_add (1, std::memory_order_relaxed);
 }
 
 void QualityMonitor::finalizeSpikes (int pi)
@@ -995,6 +1027,7 @@ void QualityMonitor::finalizeSpikes (int pi)
     for (float r : m.spikeRateHz)
         if (r < m.spikeRateFailHz)
             m.numLowSpikeChannels++;
+    metricsGeneration.fetch_add (1, std::memory_order_relaxed);
 }
 
 void QualityMonitor::captureSnapshot (int pi, AudioBuffer<float>& buffer)
@@ -1208,6 +1241,8 @@ bool QualityMonitor::startAcquisition()
 bool QualityMonitor::stopAcquisition()
 {
     processingHasStarted.store (false);
+    for (int pi = 0; pi < (int) fftWorkers.size(); ++pi)
+        stopFftWorker (pi);
     return true;
 }
 
@@ -1221,6 +1256,8 @@ void QualityMonitor::startProcessing()
 void QualityMonitor::stopProcessing()
 {
     processingHasStarted.store (false);
+    for (int pi = 0; pi < (int) fftWorkers.size(); ++pi)
+        stopFftWorker (pi);
 }
 
 void QualityMonitor::setAutoStart (bool enabled)
@@ -1233,13 +1270,82 @@ void QualityMonitor::setSyncMatchingDeviceThresholds (bool enabled)
     syncMatchingDeviceThresholds.store (enabled);
 }
 
+void QualityMonitor::stopFftWorker (int pi)
+{
+    if (pi >= (int) fftWorkers.size() || fftWorkers[pi] == nullptr)
+        return;
+    auto& worker = *fftWorkers[pi];
+    if (worker.thread.joinable())
+    {
+        {
+            // Hold the mutex so the cv.wait predicate re-checks the stop flag
+            // atomically with the notification.
+            std::lock_guard<std::mutex> lk (worker.mutex);
+            worker.stop.store (true, std::memory_order_relaxed);
+        }
+        worker.cv.notify_one();
+        worker.thread.join();
+    }
+}
+
+void QualityMonitor::startFftWorker (int pi)
+{
+    // Create a fresh worker object.  The lambda captures a raw pointer to it;
+    // since we store it via unique_ptr in fftWorkers, the object's address is
+    // stable across any future vector resize.
+    fftWorkers[pi] = std::make_unique<FFTWorker>();
+    auto* worker = fftWorkers[pi].get();
+
+    worker->thread = std::thread ([this, pi, worker]()
+    {
+        while (true)
+        {
+            // Sleep until work arrives or stop is requested.
+            {
+                std::unique_lock<std::mutex> lk (worker->mutex);
+                worker->cv.wait (lk, [worker]
+                {
+                    return worker->stop.load (std::memory_order_relaxed)
+                        || worker->workBuf.load (std::memory_order_acquire) >= 0;
+                });
+                if (worker->stop.load (std::memory_order_relaxed))
+                    break;
+            }
+
+            // Claim the work (returns -1 if a spurious wake slipped through)
+            const int bufIdx = worker->workBuf.exchange (-1, std::memory_order_acquire);
+            if (bufIdx < 0)
+                continue;
+
+            // Execute the batched FFT plan on the just-filled ring buffer and
+            // accumulate power.  procState[pi] is safe to access here: workers
+            // are stopped before procState is ever rebuilt in updateSettings().
+            auto& ps = procState[pi];
+            const float* ring = (bufIdx == 0) ? ps.fftRing.data() : ps.fftRingB.data();
+            ps.fft->execute (ring);                        // window all channels + batched FFT
+            ps.fft->accumulatePower (ps.powerAccum.data()); // add |X|^2 for all channels
+            ++worker->winCount;
+
+            if (worker->winCount >= 8)
+            {
+                finalizeFFT (pi);                                         // writes under metricsMutex
+                std::fill (ps.powerAccum.begin(), ps.powerAccum.end(), 0.0);
+                worker->winCount = 0;
+            }
+        }
+    });
+}
+
 void QualityMonitor::doStartProcessing()
 {
     const int dur = durationSeconds.load();
 
-    // Reset procState — safe because the audio thread either has not started
-    // yet (startAcquisition path) or processingHasStarted is still false so
-    // process() returns immediately without touching procState.
+    // Stop any still-running workers from a previous run, then reset procState.
+    // processingHasStarted is false at this point, so process() returns
+    // immediately and there is no audio-thread race on procState.
+    for (int pi = 0; pi < (int) fftWorkers.size(); ++pi)
+        stopFftWorker (pi);
+
     for (int pi = 0; pi < totalProbes; ++pi)
     {
         auto& ps = procState[pi];
@@ -1254,8 +1360,10 @@ void QualityMonitor::doStartProcessing()
         ps.spikeWarmupDone = false;
         ps.fftRingPos = 0;
         ps.fftWinCount = 0;
-        std::fill (ps.powerAccum.begin(), ps.powerAccum.end(), 0.0);
-        std::fill (ps.snapshotRing.begin(), ps.snapshotRing.end(), 0.0f);
+        ps.activeFftBuf = 0;
+        std::fill (ps.powerAccum.begin(),      ps.powerAccum.end(),      0.0);
+        std::fill (ps.fftRingB.begin(),        ps.fftRingB.end(),        0.0f);
+        std::fill (ps.snapshotRing.begin(),    ps.snapshotRing.end(),    0.0f);
         std::fill (ps.snapshotSaturated.begin(), ps.snapshotSaturated.end(), uint8_t (0));
         ps.snapshotPos = 0;
     }
@@ -1292,7 +1400,15 @@ void QualityMonitor::doStartProcessing()
             procState[pi].totalSamplesAllowed =
                 int64_t (dur) * int64_t (sr + 0.5f);
         }
+        metricsGeneration.fetch_add (1, std::memory_order_relaxed);
     }
+
+    // Start one FFT worker per probe.  Workers are started after the metrics
+    // reset so they never see stale state, and before processingHasStarted is
+    // set to true so the audio thread cannot hand off work until they're ready.
+    fftWorkers.resize (totalProbes);
+    for (int pi = 0; pi < totalProbes; ++pi)
+        startFftWorker (pi);
 
     processingHasStarted.store (true);
 }

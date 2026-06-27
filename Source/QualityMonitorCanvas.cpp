@@ -1955,14 +1955,22 @@ void QualityMonitorCanvas::stopProcessing()
 
 void QualityMonitorCanvas::refresh()
 {
-    processor->copyMetricsTo (localMetrics);
-    processingDone = isRunCompleted (localMetrics);
-    updateSaveButtonState();
+    // Gate the expensive mutex-guarded deep copy on a generation change.
+    // Panel updateData() calls still run every tick so the display stays live;
+    // only the ~16 MB probeMetrics copy is skipped when nothing has changed.
+    const uint32_t gen = processor->getMetricsGeneration();
+    if (gen != lastSeenGeneration)
+    {
+        processor->copyMetricsTo (localMetrics);
+        lastSeenGeneration = gen;
+        processingDone = isRunCompleted (localMetrics);
+        updateSaveButtonState();
 
-    // Update the sidebar list with latest status colours
-    probeListModel->setMetrics (localMetrics, selectedProbe);
-    for (int i = 0; i < localMetrics.size(); ++i)
-        probeListBox->repaintRow (i);
+        // Update the sidebar list with latest status colours
+        probeListModel->setMetrics (localMetrics, selectedProbe);
+        for (int i = 0; i < localMetrics.size(); ++i)
+            probeListBox->repaintRow (i);
+    }
 
     if (selectedProbe >= localMetrics.size())
         return;

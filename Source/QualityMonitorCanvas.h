@@ -324,6 +324,7 @@ private:
     bool acquisitionActive = false;
     bool processingDone = false;
     int snapRefreshCounter = 0; // throttle DataSnapshotPanel to 1 Hz
+    uint32_t lastSeenGeneration = 0; // tracks metricsGeneration to skip no-op deep copies
 
     static constexpr int SIDEBAR_W = 240;
     static constexpr int HEADER_H = 36;

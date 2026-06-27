@@ -32,9 +32,11 @@
 
 #include <atomic>
 #include <cmath>
+#include <condition_variable>
 #include <cstdint>
 #include <memory>
 #include <mutex>
+#include <thread>
 #include <vector>
 
 namespace QualityMonitorParams
@@ -52,19 +54,27 @@ inline constexpr auto kSpikeFailChannelPercentageParam = "spike_fail_channel_per
 inline constexpr auto kSyncMatchingDeviceThresholdsParam = "sync_matching_device_thresholds";
 } // namespace QualityMonitorParams
 
-// -- RAII wrapper: owns one r2c FFTW plan + its aligned buffers -------------------------------------------------
+// -- RAII wrapper: multi-channel batched r2c FFTW plan (O4) ---------------------------------------------------
+// Owns SIMD-aligned input/output buffers and a fftw_plan_many_dft_r2c plan that
+// processes all nCh channels in a single fftw_execute() call.
+// Input layout (channel-major): channel c at inBuf + c * fftSize.
+// Output layout (channel-major): channel c at outBuf + c * numBins.
 class FFTProcessor
 {
 public:
-    explicit FFTProcessor (int n)
-        : fftSize (n), numBins (n / 2 + 1)
+    FFTProcessor (int n, int numChannels)
+        : fftSize (n), numBins (n / 2 + 1), nCh (numChannels)
     {
-        // fftw_alloc_real / fftw_alloc_complex guarantee SIMD alignment
-        inBuf = fftw_alloc_real (fftSize);
-        outBuf = fftw_alloc_complex (numBins);
-        // FFTW_ESTIMATE avoids overwriting buffers during planning
-        plan = fftw_plan_dft_r2c_1d (fftSize, inBuf, outBuf, FFTW_ESTIMATE);
-        // Precompute Hanning window
+        inBuf  = fftw_alloc_real    (size_t (fftSize) * nCh);
+        outBuf = fftw_alloc_complex (size_t (numBins)  * nCh);
+        // Single plan that batches all nCh channels; FFTW can exploit inter-channel SIMD.
+        plan = fftw_plan_many_dft_r2c (
+            1,        // rank
+            &fftSize, // n
+            nCh,      // howmany
+            inBuf,  nullptr, 1, fftSize,  // in, inembed, istride, idist
+            outBuf, nullptr, 1, numBins,  // out, onembed, ostride, odist
+            FFTW_ESTIMATE);
         window.resize (fftSize);
         for (int k = 0; k < fftSize; ++k)
             window[k] = 0.5 * (1.0 - std::cos (2.0 * MathConstants<double>::pi * k / (fftSize - 1)));
@@ -72,43 +82,55 @@ public:
 
     ~FFTProcessor()
     {
-        if (plan)
-            fftw_destroy_plan (plan);
-        if (inBuf)
-            fftw_free (inBuf);
-        if (outBuf)
-            fftw_free (outBuf);
+        if (plan)   fftw_destroy_plan (plan);
+        if (inBuf)  fftw_free (inBuf);
+        if (outBuf) fftw_free (outBuf);
     }
 
-    // Execute r2c on 'src' (float, length fftSize). Fills outBuf.
-    void execute (const float* src)
+    // Apply Hanning window to every channel in ringBuffer (channel-major,
+    // channel c at ringBuffer + c * fftSize) and run the batched plan.
+    void execute (const float* ringBuffer)
     {
-        for (int k = 0; k < fftSize; ++k)
-            inBuf[k] = src[k] * window[k];
+        for (int c = 0; c < nCh; ++c)
+        {
+            const float* src = ringBuffer + c * fftSize;
+            double*      dst = inBuf      + c * fftSize;
+            for (int k = 0; k < fftSize; ++k)
+                dst[k] = double (src[k]) * window[k];
+        }
         fftw_execute (plan);
     }
 
-    // Power at bin k = |X[k]|^2
-    double powerAt (int k) const
+    // Add |X[c][k]|^2 for all channels into accum[c * numBins + k].
+    // The caller owns and manages accum; this method does NOT clear it.
+    void accumulatePower (double* accum) const
     {
-        double re = outBuf[k][0];
-        double im = outBuf[k][1];
-        return re * re + im * im;
+        for (int c = 0; c < nCh; ++c)
+        {
+            const fftw_complex* row  = outBuf + c * numBins;
+            double*             dest = accum  + c * numBins;
+            for (int k = 0; k < numBins; ++k)
+            {
+                const double re = row[k][0];
+                const double im = row[k][1];
+                dest[k] += re * re + im * im;
+            }
+        }
     }
 
     int getFFTSize() const { return fftSize; }
     int getNumBins() const { return numBins; }
 
-    // Non-copyable, non-movable (plan holds raw pointers)
     FFTProcessor (const FFTProcessor&) = delete;
     FFTProcessor& operator= (const FFTProcessor&) = delete;
 
 private:
-    int fftSize;
-    int numBins;
-    double* inBuf = nullptr;
-    fftw_complex* outBuf = nullptr;
-    fftw_plan plan = nullptr;
+    int            fftSize;
+    int            numBins;
+    int            nCh;
+    double*        inBuf  = nullptr;
+    fftw_complex*  outBuf = nullptr;
+    fftw_plan      plan   = nullptr;
     std::vector<double> window;
 };
 
@@ -121,10 +143,12 @@ struct ProbeProcessingState
 
     // FFT ring buffer [numChannels * FFT_SIZE] and one shared FFTProcessor
     std::unique_ptr<FFTProcessor> fft;
-    std::vector<float> fftRing; // [numChannels * FFT_SIZE]
+    std::vector<float> fftRing;  // [numChannels * FFT_SIZE] ping-pong buffer 0
+    std::vector<float> fftRingB; // [numChannels * FFT_SIZE] ping-pong buffer 1
+    int activeFftBuf = 0;        // 0 = fftRing is active, 1 = fftRingB (audio-thread-only)
     int fftRingPos = 0;
-    int fftWinCount = 0;
-    std::vector<double> powerAccum; // [numChannels * FFT_BINS]
+    int fftWinCount = 0;         // legacy field; worker now uses FFTWorker::winCount
+    std::vector<double> powerAccum; // [numChannels * FFT_BINS] worker-owned after O2
 
     // Spike detection
     std::vector<float> spikeThreshV; // adaptive 5× RMS, in raw V
@@ -155,6 +179,7 @@ struct ProbeProcessingState
     std::vector<float> scratchSurround; // size 40 (±20 bin window)
     std::vector<float> scratchPlDb; // size nCh — per-channel powerline band power (dB)
     std::vector<float> scratchHFDb; // size nCh — per-channel 8–15 kHz mean power (dB)
+    std::vector<float> scratchSnapshot; // size nCh * snapshotSamples — linearised ring, pre-built before lock
 
     /** Initialises all per-probe state for a new acquisition run.*/
     void allocate (int nCh, int windowSamples, int snapSamples);
@@ -243,6 +268,11 @@ public:
     /** True while analysis is running (between startProcessing and allDone). */
     bool isProcessingActive() const { return processingHasStarted.load(); }
 
+    /** Monotonically incremented (under metricsMutex) whenever probeMetrics is
+        updated.  The canvas compares this against its own cached value to skip
+        the expensive deep-copy when no new data has arrived since the last refresh. */
+    uint32_t getMetricsGeneration() const noexcept { return metricsGeneration.load(); }
+
 private:
     Array<ProbeMetrics> probeMetrics; // written audio / read UI
     std::vector<ProbeProcessingState> procState; // audio-thread only
@@ -251,11 +281,32 @@ private:
     std::atomic<bool> autoStartProcessing { true };
     std::atomic<bool> syncMatchingDeviceThresholds { false };
     std::atomic<bool> processingHasStarted { false };
+    std::atomic<uint32_t> metricsGeneration { 0 }; // incremented under metricsMutex on every probeMetrics write
     bool applyingMatchedDeviceThresholds = false;
 
     std::vector<std::vector<int>> probeChannelIndices; // global buffer indices of DATA channels per stream
     std::vector<uint16> probeStreamIds; // stream ID for each probe (for per-stream sample count)
     int totalProbes = 0;
+
+    // ── Per-probe FFT worker (O2) ──────────────────────────────────────────────
+    // Stored as unique_ptr so that std::mutex / std::condition_variable /
+    // std::thread stay at stable heap addresses even if procState is reallocated.
+    struct FFTWorker
+    {
+        std::thread             thread;
+        std::mutex              mutex;
+        std::condition_variable cv;
+        std::atomic<int>        workBuf { -1 };  // -1 = idle; 0/1 = ring index ready for FFT
+        std::atomic<bool>       stop    { false };
+        int                     winCount = 0;    // windows accumulated since last finalizeFFT
+    };
+    std::vector<std::unique_ptr<FFTWorker>> fftWorkers;
+
+    /** Stop the worker for probe pi and join its thread (message-thread safe). */
+    void stopFftWorker (int pi);
+    /** Allocate and start a new FFT worker for probe pi. Must be called after
+        procState[pi] is fully initialised and processingHasStarted is false. */
+    void startFftWorker (int pi);
 
     void finalizeRms (int pi);
     void finalizeFFT (int pi);
