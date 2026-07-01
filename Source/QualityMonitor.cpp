@@ -1422,3 +1422,104 @@ void QualityMonitor::doStartProcessing()
 
     processingHasStarted.store (true);
 }
+
+String QualityMonitor::handleConfigMessage (const String& msg)
+{
+    // Handle configuration messages for remote control
+    // "start" -- starts the quality monitoring process (if not already running)
+    // "stop" -- stops the quality monitoring process (if running)
+    // "status" -- returns a JSON string with the current status:
+    //  - one entry per probe, each containing the current metrics and processing state
+
+    auto statusStr = [] (ProbeStatus s) -> String
+    {
+        switch (s)
+        {
+            case ProbeStatus::PASS: return "pass";
+            case ProbeStatus::FAIL: return "fail";
+            default:                return "unknown";
+        }
+    };
+
+    if (msg.equalsIgnoreCase ("start"))
+    {
+        if (! CoreServices::getAcquisitionStatus())
+        {
+            DynamicObject::Ptr r = new DynamicObject();
+            r->setProperty ("status",  "error");
+            r->setProperty ("message", "Acquisition is not running");
+            return JSON::toString (var (r.get()));
+        }
+        startProcessing();
+        DynamicObject::Ptr r = new DynamicObject();
+        r->setProperty ("status",  "ok");
+        r->setProperty ("message", "Processing started");
+        return JSON::toString (var (r.get()));
+    }
+
+    if (msg.equalsIgnoreCase ("stop"))
+    {
+        stopProcessing();
+        DynamicObject::Ptr r = new DynamicObject();
+        r->setProperty ("status",  "ok");
+        r->setProperty ("message", "Processing stopped");
+        return JSON::toString (var (r.get()));
+    }
+
+    if (msg.equalsIgnoreCase ("status"))
+    {
+        // Copy metrics under lock; build JSON off the lock to minimise hold time.
+        Array<ProbeMetrics> metrics;
+        {
+            std::lock_guard<std::mutex> lock (metricsMutex);
+            metrics = probeMetrics;
+        }
+
+        const bool running = processingHasStarted.load();
+        bool allDone = running && metrics.size() > 0;
+        for (const auto& m : metrics)
+            if (! m.processingDone)
+                allDone = false;
+
+        const String runStatus = ! running ? "idle"
+                               : allDone  ? "completed"
+                                           : "running";
+
+        Array<var> probes;
+        for (const auto& m : metrics)
+        {
+            DynamicObject::Ptr probeObj = new DynamicObject();
+            probeObj->setProperty ("name",           m.streamName);
+            probeObj->setProperty ("channel_count",  m.numChannels);
+            probeObj->setProperty ("sample_rate_hz", m.sampleRate);
+            probeObj->setProperty ("processing_done", m.processingDone);
+
+            DynamicObject::Ptr statusObj = new DynamicObject();
+            statusObj->setProperty ("overall",  statusStr (m.status));
+            statusObj->setProperty ("rms",      statusStr (m.rmsStatus));
+            statusObj->setProperty ("spectrum", statusStr (m.spectrumStatus));
+            statusObj->setProperty ("snapshot", statusStr (m.snapshotStatus));
+            statusObj->setProperty ("spike",    statusStr (m.spikeStatus));
+            probeObj->setProperty ("status", var (statusObj.get()));
+
+            DynamicObject::Ptr alertObj = new DynamicObject();
+            alertObj->setProperty ("high_rms_channel_count",  m.numHighRmsChannels);
+            alertObj->setProperty ("noisy_channel_count",     m.numNoisyChannels);
+            alertObj->setProperty ("saturated_channel_count", m.numSaturatedChannels);
+            alertObj->setProperty ("low_spike_channel_count", m.numLowSpikeChannels);
+            probeObj->setProperty ("alerts", var (alertObj.get()));
+
+            probes.add (var (probeObj.get()));
+        }
+
+        DynamicObject::Ptr root = new DynamicObject();
+        root->setProperty ("processing", runStatus);
+        root->setProperty ("probes",     probes);
+        return JSON::toString (var (root.get()));
+    }
+
+    DynamicObject::Ptr r = new DynamicObject();
+    r->setProperty ("status",  "error");
+    r->setProperty ("message", "Unknown command: " + msg);
+    return JSON::toString (var (r.get()));
+}

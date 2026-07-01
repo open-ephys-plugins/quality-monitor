@@ -273,6 +273,9 @@ public:
         the expensive deep-copy when no new data has arrived since the last refresh. */
     uint32_t getMetricsGeneration() const noexcept { return metricsGeneration.load(); }
 
+    /** Remote triggering and status checking */
+    String handleConfigMessage (const String& msg) override;
+
 private:
     Array<ProbeMetrics> probeMetrics; // written audio / read UI
     std::vector<ProbeProcessingState> procState; // audio-thread only
