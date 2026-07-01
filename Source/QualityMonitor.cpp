@@ -837,6 +837,16 @@ void QualityMonitor::finalizeRms (int pi)
 
     // O(1) pointer swap — the pre-linearised data is already in scratchSnapshot.
     std::swap (m.dataSnapshot, ps.scratchSnapshot);
+
+    // Update saturation count in real time (snapshotSaturated is a latching
+    // flag — set to 1 the first time a sample exceeds the threshold and never
+    // cleared until the run resets).  Counting it every RMS window gives a
+    // live update at ~5 Hz rather than only at run completion.
+    m.numSaturatedChannels = 0;
+    for (uint8_t s : ps.snapshotSaturated)
+        if (s != 0)
+            ++m.numSaturatedChannels;
+
     metricsGeneration.fetch_add (1, std::memory_order_relaxed);
 }
 

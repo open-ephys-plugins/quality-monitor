@@ -938,7 +938,27 @@ void PowerSpectrumPanel::paint (Graphics& g)
 
     // Heatmap: render into an Image (one pixel per display pixel), then blit.
     // Each pixel's channel is determined by its Y coordinate; frequency bin by X.
+    //
+    // On a log frequency axis, one pixel at high frequencies spans many FFT
+    // bins (e.g. ~16 bins per pixel at 10 kHz for a 30 kHz stream).  Sampling
+    // only the single bin at the pixel's centre frequency would silently miss
+    // any narrow peak whose bin falls between two consecutive pixel centres.
+    // Pre-compute the inclusive bin range [kStart, kEnd) for each pixel once,
+    // then take the maximum power across that range so no peak bin is skipped.
     {
+        // Precompute bin ranges once; reused for every channel row.
+        std::vector<int> pixelBinStart (pw_i), pixelBinEnd (pw_i);
+        for (int x = 0; x < pw_i; ++x)
+        {
+            pixelBinStart[x] = pixelToLogBin (x);
+            // Upper bound: leftmost bin of the next pixel (exclusive).
+            // std::max ensures at least one bin per pixel even when consecutive
+            // pixels map to the same bin (low-frequency end of the log axis).
+            pixelBinEnd[x] = (x + 1 < pw_i)
+                                 ? std::max (pixelBinStart[x] + 1, pixelToLogBin (x + 1))
+                                 : FFT_BINS;
+        }
+
         Image heatmap (Image::RGB, pw_i, ph_i, true, SoftwareImageType());
         heatmap.clear (heatmap.getBounds(), findColour (ThemeColours::componentParentBackground));
         if (hasData)
@@ -951,8 +971,12 @@ void PowerSpectrumPanel::paint (Graphics& g)
                 const float* row = spectrum.data() + c * FFT_BINS;
                 for (int x = 0; x < pw_i; ++x)
                 {
-                    const int k = pixelToLogBin (x);
-                    const float db = row[k] > 0.0f ? 10.0f * std::log10 (row[k]) : gMinDb;
+                    // Max power over all bins that map to this pixel.
+                    float maxPower = 0.0f;
+                    for (int k = pixelBinStart[x]; k < pixelBinEnd[x]; ++k)
+                        maxPower = std::max (maxPower, row[k]);
+
+                    const float db = maxPower > 0.0f ? 10.0f * std::log10 (maxPower) : gMinDb;
                     const float tLin = jlimit (0.0f, 1.0f, (db - gMinDb) / dbRange);
                     const float t = std::log10 (1.0f + 9.0f * tLin); // log colour scale
                     bmd.setPixelColour (x, y, ColourMaps::viridis (t));
