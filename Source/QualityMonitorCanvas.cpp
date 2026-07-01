@@ -686,9 +686,11 @@ void RmsHeatmapPanel::paint (Graphics& g)
 
     // --- Heatmap via BitmapData ---
     {
-        Image heatmap (Image::RGB, pw_i, ph_i, true, SoftwareImageType());
-        heatmap.clear (heatmap.getBounds(), findColour (ThemeColours::componentParentBackground));
-        Image::BitmapData bmd (heatmap, Image::BitmapData::writeOnly);
+        const Colour bg = findColour (ThemeColours::componentParentBackground);
+        if (cachedHeatmap.getWidth() != pw_i || cachedHeatmap.getHeight() != ph_i)
+            cachedHeatmap = Image (Image::RGB, pw_i, ph_i, false, SoftwareImageType());
+        cachedHeatmap.clear (cachedHeatmap.getBounds(), bg);
+        Image::BitmapData bmd (cachedHeatmap, Image::BitmapData::writeOnly);
 
         // Only paint frames that have been accumulated
         if (rmsHistoryFrames > 0)
@@ -709,7 +711,7 @@ void RmsHeatmapPanel::paint (Graphics& g)
             }
         }
 
-        g.drawImageAt (heatmap, pb.getX(), pb.getY());
+        g.drawImageAt (cachedHeatmap, pb.getX(), pb.getY());
     }
 
     // --- Live per-channel strip (latest RMS, Inferno) ---
@@ -717,11 +719,12 @@ void RmsHeatmapPanel::paint (Graphics& g)
         const int sw = stripBounds.getWidth();
         const int sh = ph_i;
         const Colour bg = findColour (ThemeColours::componentParentBackground);
-        Image stripImg (Image::RGB, sw, sh, true, SoftwareImageType());
-        stripImg.clear (stripImg.getBounds(), bg);
+        if (cachedStrip.getWidth() != sw || cachedStrip.getHeight() != sh)
+            cachedStrip = Image (Image::RGB, sw, sh, false, SoftwareImageType());
+        cachedStrip.clear (cachedStrip.getBounds(), bg);
         if (! rmsUV.empty())
         {
-            Image::BitmapData bmd (stripImg, Image::BitmapData::writeOnly);
+            Image::BitmapData bmd (cachedStrip, Image::BitmapData::writeOnly);
             for (int y = 0; y < sh; ++y)
             {
                 const int ch = channelForPixelRow (y, sh, viewChStart, viewChEnd);
@@ -733,7 +736,7 @@ void RmsHeatmapPanel::paint (Graphics& g)
                     bmd.setPixelColour (x, y, col);
             }
         }
-        g.drawImageAt (stripImg, stripBounds.getX(), stripBounds.getY());
+        g.drawImageAt (cachedStrip, stripBounds.getX(), stripBounds.getY());
         g.setColour (findColour (ThemeColours::outline));
         g.drawRect (stripBounds.expanded (1), 1);
     }
@@ -959,11 +962,13 @@ void PowerSpectrumPanel::paint (Graphics& g)
                                  : FFT_BINS;
         }
 
-        Image heatmap (Image::RGB, pw_i, ph_i, true, SoftwareImageType());
-        heatmap.clear (heatmap.getBounds(), findColour (ThemeColours::componentParentBackground));
+        const Colour bg = findColour (ThemeColours::componentParentBackground);
+        if (cachedHeatmap.getWidth() != pw_i || cachedHeatmap.getHeight() != ph_i)
+            cachedHeatmap = Image (Image::RGB, pw_i, ph_i, false, SoftwareImageType());
+        cachedHeatmap.clear (cachedHeatmap.getBounds(), bg);
         if (hasData)
         {
-            Image::BitmapData bmd (heatmap, Image::BitmapData::writeOnly);
+            Image::BitmapData bmd (cachedHeatmap, Image::BitmapData::writeOnly);
 
             for (int y = 0; y < ph_i; ++y)
             {
@@ -984,18 +989,20 @@ void PowerSpectrumPanel::paint (Graphics& g)
             }
         }
 
-        g.drawImageAt (heatmap, pb.getX(), pb.getY());
+        g.drawImageAt (cachedHeatmap, pb.getX(), pb.getY());
     }
 
     // --- Powerline noise overview strip ---
     {
         const int sw = plStripBounds.getWidth();
         const int sh = ph_i;
-        Image stripImg (Image::RGB, sw, sh, true, SoftwareImageType());
-        stripImg.clear (stripImg.getBounds(), findColour (ThemeColours::componentParentBackground));
+        const Colour bg = findColour (ThemeColours::componentParentBackground);
+        if (cachedPlStrip.getWidth() != sw || cachedPlStrip.getHeight() != sh)
+            cachedPlStrip = Image (Image::RGB, sw, sh, false, SoftwareImageType());
+        cachedPlStrip.clear (cachedPlStrip.getBounds(), bg);
         if (! channelPowerlineDb.empty())
         {
-            Image::BitmapData bmd (stripImg, Image::BitmapData::writeOnly);
+            Image::BitmapData bmd (cachedPlStrip, Image::BitmapData::writeOnly);
             for (int y = 0; y < sh; ++y)
             {
                 const int ch = channelForPixelRow (y, sh, viewChStart, viewChEnd);
@@ -1007,7 +1014,7 @@ void PowerSpectrumPanel::paint (Graphics& g)
                     bmd.setPixelColour (x, y, col);
             }
         }
-        g.drawImageAt (stripImg, plStripBounds.getX(), plStripBounds.getY());
+        g.drawImageAt (cachedPlStrip, plStripBounds.getX(), plStripBounds.getY());
         g.setColour (findColour (ThemeColours::outline));
         g.drawRect (plStripBounds.expanded (1), 1);
     }
@@ -1016,11 +1023,13 @@ void PowerSpectrumPanel::paint (Graphics& g)
     {
         const int sw = hfStripBounds.getWidth();
         const int sh = ph_i;
-        Image stripImg (Image::RGB, sw, sh, true, SoftwareImageType());
-        stripImg.clear (stripImg.getBounds(), findColour (ThemeColours::componentParentBackground));
+        const Colour bg = findColour (ThemeColours::componentParentBackground);
+        if (cachedHfStrip.getWidth() != sw || cachedHfStrip.getHeight() != sh)
+            cachedHfStrip = Image (Image::RGB, sw, sh, false, SoftwareImageType());
+        cachedHfStrip.clear (cachedHfStrip.getBounds(), bg);
         if (! channelHFNoiseDb.empty())
         {
-            Image::BitmapData bmd (stripImg, Image::BitmapData::writeOnly);
+            Image::BitmapData bmd (cachedHfStrip, Image::BitmapData::writeOnly);
             for (int y = 0; y < sh; ++y)
             {
                 const int ch = channelForPixelRow (y, sh, viewChStart, viewChEnd);
@@ -1032,7 +1041,7 @@ void PowerSpectrumPanel::paint (Graphics& g)
                     bmd.setPixelColour (x, y, col);
             }
         }
-        g.drawImageAt (stripImg, hfStripBounds.getX(), hfStripBounds.getY());
+        g.drawImageAt (cachedHfStrip, hfStripBounds.getX(), hfStripBounds.getY());
         g.setColour (findColour (ThemeColours::outline));
         g.drawRect (hfStripBounds.expanded (1), 1);
     }
@@ -1227,11 +1236,13 @@ void DataSnapshotPanel::paint (Graphics& g)
 
     // --- Snapshot via BitmapData ---
     {
-        Image snapshotImg (Image::RGB, pw_i, ph_i, true, SoftwareImageType());
-        snapshotImg.clear (snapshotImg.getBounds(), findColour (ThemeColours::componentParentBackground));
+        const Colour bg = findColour (ThemeColours::componentParentBackground);
+        if (cachedHeatmap.getWidth() != pw_i || cachedHeatmap.getHeight() != ph_i)
+            cachedHeatmap = Image (Image::RGB, pw_i, ph_i, false, SoftwareImageType());
+        cachedHeatmap.clear (cachedHeatmap.getBounds(), bg);
         if (hasData)
         {
-            Image::BitmapData bmd (snapshotImg, Image::BitmapData::writeOnly);
+            Image::BitmapData bmd (cachedHeatmap, Image::BitmapData::writeOnly);
 
             // Average-pool over samples per pixel column (reduces aliasing).
             for (int y = 0; y < ph_i; ++y)
@@ -1254,18 +1265,20 @@ void DataSnapshotPanel::paint (Graphics& g)
             }
         }
 
-        g.drawImageAt (snapshotImg, pb.getX(), pb.getY());
+        g.drawImageAt (cachedHeatmap, pb.getX(), pb.getY());
     }
 
     // --- Live per-channel strip (mean |voltage|, Cividis, 0 → 100 µV linear) ---
     {
         const int sw = stripBounds.getWidth();
         const int sh = ph_i;
-        Image stripImg (Image::RGB, sw, sh, true, SoftwareImageType());
-        stripImg.clear (stripImg.getBounds(), findColour (ThemeColours::componentParentBackground));
+        const Colour bg = findColour (ThemeColours::componentParentBackground);
+        if (cachedStrip.getWidth() != sw || cachedStrip.getHeight() != sh)
+            cachedStrip = Image (Image::RGB, sw, sh, false, SoftwareImageType());
+        cachedStrip.clear (cachedStrip.getBounds(), bg);
         if (! channelStdUV.empty())
         {
-            Image::BitmapData bmd (stripImg, Image::BitmapData::writeOnly);
+            Image::BitmapData bmd (cachedStrip, Image::BitmapData::writeOnly);
             for (int y = 0; y < sh; ++y)
             {
                 const int ch = channelForPixelRow (y, sh, viewChStart, viewChEnd);
@@ -1276,7 +1289,7 @@ void DataSnapshotPanel::paint (Graphics& g)
                     bmd.setPixelColour (x, y, col);
             }
         }
-        g.drawImageAt (stripImg, stripBounds.getX(), stripBounds.getY());
+        g.drawImageAt (cachedStrip, stripBounds.getX(), stripBounds.getY());
         g.setColour (findColour (ThemeColours::outline));
         g.drawRect (stripBounds.expanded (1), 1);
     }
@@ -1458,11 +1471,13 @@ void SpikeRatePanel::paint (Graphics& g)
 
     // --- Heatmap: live spike rate history (channels × time) ---
     {
-        Image heatmap (Image::RGB, pw_i, ph_i, true, SoftwareImageType());
-        heatmap.clear (heatmap.getBounds(), findColour (ThemeColours::componentParentBackground));
+        const Colour bg = findColour (ThemeColours::componentParentBackground);
+        if (cachedHeatmap.getWidth() != pw_i || cachedHeatmap.getHeight() != ph_i)
+            cachedHeatmap = Image (Image::RGB, pw_i, ph_i, false, SoftwareImageType());
+        cachedHeatmap.clear (cachedHeatmap.getBounds(), bg);
         if (historyFrames > 0)
         {
-            Image::BitmapData bmd (heatmap, Image::BitmapData::writeOnly);
+            Image::BitmapData bmd (cachedHeatmap, Image::BitmapData::writeOnly);
             const int filledPx = std::min (pw_i,
                                            int (int64_t (historyFrames) * int64_t (pw_i) / int64_t (historyMaxFrames)));
             for (int y = 0; y < ph_i; ++y)
@@ -1477,18 +1492,20 @@ void SpikeRatePanel::paint (Graphics& g)
                 }
             }
         }
-        g.drawImageAt (heatmap, pb.getX(), pb.getY());
+        g.drawImageAt (cachedHeatmap, pb.getX(), pb.getY());
     }
 
     // --- Average spike rate overview strip (log scale, threshold colours) ---
     {
         const int sw = stripBounds.getWidth();
         const int sh = ph_i;
-        Image stripImg (Image::RGB, sw, sh, true, SoftwareImageType());
-        stripImg.clear (stripImg.getBounds(), findColour (ThemeColours::componentParentBackground));
+        const Colour bg = findColour (ThemeColours::componentParentBackground);
+        if (cachedStrip.getWidth() != sw || cachedStrip.getHeight() != sh)
+            cachedStrip = Image (Image::RGB, sw, sh, false, SoftwareImageType());
+        cachedStrip.clear (cachedStrip.getBounds(), bg);
         if (! rateHz.empty())
         {
-            Image::BitmapData bmd (stripImg, Image::BitmapData::writeOnly);
+            Image::BitmapData bmd (cachedStrip, Image::BitmapData::writeOnly);
             for (int y = 0; y < sh; ++y)
             {
                 const int ch = channelForPixelRow (y, sh, viewChStart, viewChEnd);
@@ -1502,7 +1519,7 @@ void SpikeRatePanel::paint (Graphics& g)
                     bmd.setPixelColour (x, y, col);
             }
         }
-        g.drawImageAt (stripImg, stripBounds.getX(), stripBounds.getY());
+        g.drawImageAt (cachedStrip, stripBounds.getX(), stripBounds.getY());
         g.setColour (findColour (ThemeColours::outline));
         g.drawRect (stripBounds.expanded (1), 1);
     }

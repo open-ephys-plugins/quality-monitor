@@ -119,6 +119,7 @@ private:
     std::unique_ptr<BoundedValueParameterEditor> thresholdEditor;
     std::unique_ptr<BoundedValueParameterEditor> channelPercentageEditor;
     void drawColourBar (Graphics& g, Rectangle<float> r);
+    Image cachedHeatmap, cachedStrip; // reused across repaints; reallocated only on resize
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (RmsHeatmapPanel)
 };
@@ -150,6 +151,7 @@ private:
     std::unique_ptr<BoundedValueParameterEditor> noiseThresholdEditor;
     std::unique_ptr<BoundedValueParameterEditor> channelPercentageEditor;
     void drawColourBar (Graphics& g, Rectangle<float> r);
+    Image cachedHeatmap, cachedPlStrip, cachedHfStrip; // reused across repaints; reallocated only on resize
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PowerSpectrumPanel)
 };
@@ -176,6 +178,7 @@ private:
     PanelLayoutCache panelLayout;
     std::unique_ptr<BoundedValueParameterEditor> thresholdEditor;
     std::unique_ptr<BoundedValueParameterEditor> channelPercentageEditor;
+    Image cachedHeatmap, cachedStrip; // reused across repaints; reallocated only on resize
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (DataSnapshotPanel)
 };
@@ -205,6 +208,7 @@ private:
     std::unique_ptr<BoundedValueParameterEditor> failThresholdEditor;
     std::unique_ptr<BoundedValueParameterEditor> channelPercentageEditor;
     void drawColourBar (Graphics& g, Rectangle<float> r);
+    Image cachedHeatmap, cachedStrip; // reused across repaints; reallocated only on resize
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SpikeRatePanel)
 };
