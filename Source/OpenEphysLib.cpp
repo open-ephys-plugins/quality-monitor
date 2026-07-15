@@ -44,7 +44,7 @@ extern "C" EXPORT void getLibInfo (Plugin::LibraryInfo* info)
 	The GUI refueses to load plugins with mismatched API versions */
     info->apiVersion = PLUGIN_API_VER;
     info->name = "Quality Monitor"; // Name of the plugin library
-    info->libVersion = "0.1.0"; //Version of the plugin
+    info->libVersion = "1.0.0"; //Version of the plugin
     info->numPlugins = NUM_PLUGINS;
 }
 

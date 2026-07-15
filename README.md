@@ -1,34 +1,14 @@
 # Quality Monitor
 
-Open Ephys GUI visualizer plugin for monitoring ephys data health in real time. It summarizes RMS noise, powerline and high-frequency spectral content, raw data snapshots, and spike-rate activity across all channels for each detected probe.
+Monitors the health of continuous electrophysiology signals in real-time.
 
 ## Installation
 
-If a release is available for your platform, install Quality Monitor through the
-Open Ephys GUI Plugin Installer. Open **File > Plugin Installer** or press
-**Ctrl+P** (**Cmd+P** on macOS), search for **Quality Monitor**, and install the
-desired version.
-
-If the plugin is not listed for your platform, build it from source using the
-instructions below.
+This plugin can be added via the Open Ephys GUI Plugin Installer. To access the Plugin Installer, press **ctrl-P** or **⌘P** from inside the GUI. Once the installer is loaded, browse to the "Quality Monitor" plugin and click "Install."
 
 ## Usage
 
-Add Quality Monitor downstream of a Neuropixels signal source, then open the
-plugin canvas to inspect each probe. The left sidebar lists detected probes, and
-the main view shows four diagnostics for the selected probe:
-
-- **RMS Heatmap** for channel-by-channel noise over time
-- **Power Spectrum** for powerline contamination and broadband noise
-- **Data Snapshot** for short raw-voltage excerpts and saturation checks
-- **Spike Rate** for cumulative and live firing-rate estimates
-
-Use the editor to select the local powerline frequency (**50 Hz** or **60 Hz**).
-In the canvas, choose an analysis duration, enable **Auto Start** if you want
-analysis to begin with acquisition, or use **Capture** and **Stop** to control
-runs manually. Thresholds for RMS, powerline SNR, and spike-rate alerts can be
-adjusted per probe from the panel headers. Once a run completes, **Save** exports
-panel snapshots and a metrics JSON summary.
+Instructions for using the Quality Monitor plugin are available [here](https://open-ephys.github.io/gui-docs/User-Manual/Plugins/Quality-Monitor.html).
 
 
 ## Building from source
@@ -57,8 +37,8 @@ headers and libraries under `libs/` during configuration.
 
 ### Windows
 
-**Requirements:** [Visual Studio 2022](https://visualstudio.microsoft.com/) and
-[CMake](https://cmake.org/install/)
+**Requirements:** [Visual Studio 2022 (or higher)](https://visualstudio.microsoft.com/) and
+[CMake >=3.15](https://cmake.org/install/)
 
 From the `Build` directory, run:
 
@@ -74,7 +54,7 @@ and build the `INSTALL` target there.
 
 ### Linux
 
-**Requirements:** [CMake](https://cmake.org/install/)
+**Requirements:** [CMake >=3.15](https://cmake.org/install/)
 
 From the `Build` directory, run:
 
