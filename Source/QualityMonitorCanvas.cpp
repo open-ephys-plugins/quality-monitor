@@ -1607,7 +1607,7 @@ void ProbeListModel::paintListBoxItem (int row, Graphics& g, int width, int heig
     String secondaryText = String (m.numChannels) + " ch";
     if (! m.deviceName.isEmpty())
         secondaryText += " | " + m.deviceName;
-    g.drawText (secondaryText, 12, b.getY() + height / 2 + 3, width - 96, height / 2 - 3, Justification::topLeft);
+    g.drawText (secondaryText, 12, b.getY() + height / 2 + 3, width - 24, height / 2 - 3, Justification::topLeft);
 
     const std::array<ProbeStatus, 4> plotStatuses { m.rmsStatus, m.spectrumStatus, m.snapshotStatus, m.spikeStatus };
     Rectangle<float> indicatorArea = b.removeFromRight (66).toFloat().reduced (10.0f, 0.0f);
@@ -1617,7 +1617,7 @@ void ProbeListModel::paintListBoxItem (int row, Graphics& g, int width, int heig
                           ? (indicatorArea.getWidth() - totalDotsWidth) / float (plotStatuses.size() - 1)
                           : 0.0f;
     float dotX = indicatorArea.getX();
-    const float dotY = indicatorArea.getCentreY() - dotSize * 0.5f;
+    const float dotY = indicatorArea.getCentreY() - 1.5f * dotSize;
     for (ProbeStatus plotStatus : plotStatuses)
     {
         drawStatusIndicator (g, Rectangle<float> (dotX, dotY, dotSize, dotSize), plotStatus);
@@ -1751,9 +1751,7 @@ QualityMonitorCanvas::QualityMonitorCanvas (QualityMonitor* proc)
     probeListBox = std::make_unique<ListBox> ("ProbeList", probeListModel.get());
     probeListBox->setRowHeight (60);
     probeListBox->setMultipleSelectionEnabled (false);
-    // probeListBox->setColour (ListBox::backgroundColourId,     Colour (0));
-    // probeListBox->setColour (ListBox::outlineColourId,        Colour (0));
-    // probeListBox->setColour (ListBox::textColourId,           Colours::white);
+    probeListBox->getViewport()->setScrollBarThickness (12);
     addAndMakeVisible (probeListBox.get());
 
     // Scrollable content with four panels
@@ -1897,6 +1895,8 @@ void QualityMonitorCanvas::updateSettings()
     probeListBox->updateContent();
     if (selectedProbe < localMetrics.size())
         probeListBox->selectRow (selectedProbe, false, true);
+    else if (!localMetrics.isEmpty())
+        probeListBox->selectRow (0, false, true);
 
     snapRefreshCounter = 0;
 
@@ -2269,7 +2269,7 @@ void QualityMonitorCanvas::layoutPanels()
     auto sb = b.removeFromLeft (SIDEBAR_W);
     // "PROBES" label occupies top 22 px; ListBox fills the rest
     sb.removeFromTop (HEADER_H);
-    sb.setHeight (probeListBox->getRowHeight() * probeListModel->getNumRows() + 2);
+    sb.setHeight (jmin (sb.getHeight(), probeListBox->getRowHeight() * probeListModel->getNumRows() + 2));
     probeListBox->setBounds (sb.reduced (1, 0));
 
     statusIndicator->setBounds (b.getCentreX() - 50, hdr.getY(), 100, hdr.getHeight() - 2);
