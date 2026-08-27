@@ -30,13 +30,11 @@
 
 #include <fftw3.h>
 
+#include <array>
 #include <atomic>
 #include <cmath>
-#include <condition_variable>
 #include <cstdint>
 #include <memory>
-#include <mutex>
-#include <thread>
 #include <vector>
 
 namespace QualityMonitorParams
@@ -65,15 +63,21 @@ public:
     FFTProcessor (int n, int numChannels)
         : fftSize (n), numBins (n / 2 + 1), nCh (numChannels)
     {
-        inBuf  = fftw_alloc_real    (size_t (fftSize) * nCh);
-        outBuf = fftw_alloc_complex (size_t (numBins)  * nCh);
+        inBuf = fftw_alloc_real (size_t (fftSize) * nCh);
+        outBuf = fftw_alloc_complex (size_t (numBins) * nCh);
         // Single plan that batches all nCh channels; FFTW can exploit inter-channel SIMD.
         plan = fftw_plan_many_dft_r2c (
-            1,        // rank
+            1, // rank
             &fftSize, // n
-            nCh,      // howmany
-            inBuf,  nullptr, 1, fftSize,  // in, inembed, istride, idist
-            outBuf, nullptr, 1, numBins,  // out, onembed, ostride, odist
+            nCh, // howmany
+            inBuf,
+            nullptr,
+            1,
+            fftSize, // in, inembed, istride, idist
+            outBuf,
+            nullptr,
+            1,
+            numBins, // out, onembed, ostride, odist
             FFTW_ESTIMATE);
         window.resize (fftSize);
         for (int k = 0; k < fftSize; ++k)
@@ -82,9 +86,12 @@ public:
 
     ~FFTProcessor()
     {
-        if (plan)   fftw_destroy_plan (plan);
-        if (inBuf)  fftw_free (inBuf);
-        if (outBuf) fftw_free (outBuf);
+        if (plan)
+            fftw_destroy_plan (plan);
+        if (inBuf)
+            fftw_free (inBuf);
+        if (outBuf)
+            fftw_free (outBuf);
     }
 
     // Apply Hanning window to every channel in ringBuffer (channel-major,
@@ -94,7 +101,7 @@ public:
         for (int c = 0; c < nCh; ++c)
         {
             const float* src = ringBuffer + c * fftSize;
-            double*      dst = inBuf      + c * fftSize;
+            double* dst = inBuf + c * fftSize;
             for (int k = 0; k < fftSize; ++k)
                 dst[k] = double (src[k]) * window[k];
         }
@@ -107,8 +114,8 @@ public:
     {
         for (int c = 0; c < nCh; ++c)
         {
-            const fftw_complex* row  = outBuf + c * numBins;
-            double*             dest = accum  + c * numBins;
+            const fftw_complex* row = outBuf + c * numBins;
+            double* dest = accum + c * numBins;
             for (int k = 0; k < numBins; ++k)
             {
                 const double re = row[k][0];
@@ -125,16 +132,17 @@ public:
     FFTProcessor& operator= (const FFTProcessor&) = delete;
 
 private:
-    int            fftSize;
-    int            numBins;
-    int            nCh;
-    double*        inBuf  = nullptr;
-    fftw_complex*  outBuf = nullptr;
-    fftw_plan      plan   = nullptr;
+    int fftSize;
+    int numBins;
+    int nCh;
+    double* inBuf = nullptr;
+    fftw_complex* outBuf = nullptr;
+    fftw_plan plan = nullptr;
     std::vector<double> window;
 };
 
-// -- Per-probe audio-thread state -----------------------------------------------
+// Mutable analysis state is confined to one probe's worker thread. The UI only
+// sees copies published through ProbeMetrics under metricsMutex.
 struct ProbeProcessingState
 {
     // RMS
@@ -143,12 +151,10 @@ struct ProbeProcessingState
 
     // FFT ring buffer [numChannels * FFT_SIZE] and one shared FFTProcessor
     std::unique_ptr<FFTProcessor> fft;
-    std::vector<float> fftRing;  // [numChannels * FFT_SIZE] ping-pong buffer 0
-    std::vector<float> fftRingB; // [numChannels * FFT_SIZE] ping-pong buffer 1
-    int activeFftBuf = 0;        // 0 = fftRing is active, 1 = fftRingB (audio-thread-only)
+    std::vector<float> fftRing;
     int fftRingPos = 0;
-    int fftWinCount = 0;         // legacy field; worker now uses FFTWorker::winCount
-    std::vector<double> powerAccum; // [numChannels * FFT_BINS] worker-owned after O2
+    int fftWinCount = 0;
+    std::vector<double> powerAccum;
 
     // Spike detection
     std::vector<float> spikeThreshV; // adaptive 5× RMS, in raw V
@@ -159,19 +165,19 @@ struct ProbeProcessingState
     int64_t cumSpikeSamples = 0; // run-total samples counted for spikes
     bool spikeWarmupDone = false; // skip first window (uncalibrated threshold)
 
-    // Snapshot ring buffer — audio-thread only, no lock needed
+    // Snapshot ring buffer — analysis-worker only, no lock needed
     std::vector<float> snapshotRing; // [numChannels * snapshotSamples]
     std::vector<uint8_t> snapshotSaturated; // [numChannels] latched once |signal| exceeds the snapshot saturation threshold
     int snapshotSamples = 3000; // = sampleRate * SNAPSHOT_WINDOW_MS / 1000
     int snapshotPos = 0; // next write position (wraps around)
 
-    // Duration tracking (audio-thread only, no lock needed)
+    // Duration tracking (analysis-worker only, no lock needed)
     int rmsWindowSamples = 6000; // 200 ms at this stream's sample rate
     int64_t totalSamplesAllowed = 0; // 0 = unlimited
     int64_t totalSamplesProcessed = 0;
     bool processingDone = false;
 
-    // Pre-allocated scratch buffers — avoids heap allocation on the audio thread
+    // Pre-allocated scratch buffers — avoids heap allocation during analysis
     std::vector<float> scratchRms; // size nCh
     std::vector<float> scratchLiveRates; // size nCh
     std::vector<float> scratchLocalRates; // size nCh
@@ -277,9 +283,51 @@ public:
     String handleConfigMessage (const String& msg) override;
 
 private:
-    Array<ProbeMetrics> probeMetrics; // written audio / read UI
-    std::vector<ProbeProcessingState> procState; // audio-thread only
-    std::mutex metricsMutex;
+    static constexpr int ingestionQueueCapacity = 3;
+    // AbstractFifo reserves one index to distinguish full from empty.
+    static constexpr int ingestionQueueStorageSize = ingestionQueueCapacity + 1;
+    static constexpr int maxIngestionBlockSamples = 16384;
+
+    static_assert (std::atomic<int64_t>::is_always_lock_free,
+                   "Ingestion sample positions must be lock-free on the audio thread");
+
+    struct IngestionSlot
+    {
+        AudioBuffer<float> samples;
+        int numSamples = 0;
+        int64_t endSample = 0;
+    };
+
+    /** One single-producer/single-consumer queue and analysis thread per probe.
+        Slot buffers are allocated before ingestion starts; enqueue() is bounded,
+        lock-free, and allocation-free. */
+    class AnalysisWorker final : private Thread
+    {
+    public:
+        AnalysisWorker (QualityMonitor& owner, int probeIndex, int numChannels);
+        ~AnalysisWorker() override;
+
+        bool start();
+        void stop();
+        void enqueue (const AudioBuffer<float>& source,
+                      const std::vector<int>& channelIndices,
+                      int numSamples) noexcept;
+
+    private:
+        void run() override;
+
+        QualityMonitor& owner;
+        const int probeIndex;
+        AbstractFifo fifo { ingestionQueueStorageSize };
+        std::array<IngestionSlot, ingestionQueueStorageSize> slots;
+        int64_t producerSamples = 0;
+        std::atomic<int64_t> observedSamples { 0 };
+    };
+
+    Array<ProbeMetrics> probeMetrics; // analysis workers write; UI reads
+    std::vector<ProbeProcessingState> procState; // analysis-worker only
+    CriticalSection metricsMutex;
+    SpinLock ingestionLock; // message thread blocks; audio thread only try-locks
     std::atomic<int> durationSeconds { 30 };
     std::atomic<bool> autoStartProcessing { true };
     std::atomic<bool> syncMatchingDeviceThresholds { false };
@@ -291,30 +339,18 @@ private:
     std::vector<uint16> probeStreamIds; // stream ID for each probe (for per-stream sample count)
     int totalProbes = 0;
 
-    // ── Per-probe FFT worker (O2) ──────────────────────────────────────────────
-    // Stored as unique_ptr so that std::mutex / std::condition_variable /
-    // std::thread stay at stable heap addresses even if procState is reallocated.
-    struct FFTWorker
-    {
-        std::thread             thread;
-        std::mutex              mutex;
-        std::condition_variable cv;
-        std::atomic<int>        workBuf { -1 };  // -1 = idle; 0/1 = ring index ready for FFT
-        std::atomic<bool>       stop    { false };
-        int                     winCount = 0;    // windows accumulated since last finalizeFFT
-    };
-    std::vector<std::unique_ptr<FFTWorker>> fftWorkers;
+    std::vector<std::unique_ptr<AnalysisWorker>> analysisWorkers;
+    std::atomic<int> completedProbeCount { 0 };
 
-    /** Stop the worker for probe pi and join its thread (message-thread safe). */
-    void stopFftWorker (int pi);
-    /** Allocate and start a new FFT worker for probe pi. Must be called after
-        procState[pi] is fully initialised and processingHasStarted is false. */
-    void startFftWorker (int pi);
+    void stopAnalysisWorker (int pi);
+    bool startAnalysisWorker (int pi);
+    void processIngestedBlock (int pi, const AudioBuffer<float>& samples, int numSamples);
+    void finishProbeIfNeeded (int pi);
 
     void finalizeRms (int pi);
     void finalizeFFT (int pi);
     void finalizeSpikes (int pi);
-    void captureSnapshot (int pi, AudioBuffer<float>& buf);
+    void captureSnapshot (int pi, const AudioBuffer<float>& samples, int numSamples);
 
     void applyThresholdToMatchingDeviceStreams (uint16 sourceStreamId, const String& parameterName, float value);
 
