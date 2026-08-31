@@ -196,7 +196,8 @@ struct ProbeProcessingState
 	or an extended settings interface.
 */
 
-class QualityMonitor : public GenericProcessor
+class QualityMonitor : public GenericProcessor,
+                       private Timer
 {
 public:
     /** The class constructor, used to initialize any members.*/
@@ -246,8 +247,8 @@ public:
     void setDurationSeconds (int sec);
 
     /** Resets per-probe counters and history when acquisition starts.
-        If autoStart is ON, processing begins immediately; otherwise it waits
-        for a manual startProcessing() call. */
+        If auto-start is enabled, processing begins after a short stream
+        stabilization delay; otherwise it waits for startProcessing(). */
     bool startAcquisition() override;
 
     /** Called when acquisition stops. */
@@ -259,7 +260,8 @@ public:
     /** Abort an in-progress analysis run. */
     void stopProcessing();
 
-    /** Enable or disable automatic processing start on acquisition. */
+    /** Configure automatic processing for the next acquisition start.
+        Changes do not affect the current acquisition or run. */
     void setAutoStart (bool enabled);
 
     /** Enable or disable copying threshold edits to streams with the same device name. */
@@ -274,6 +276,12 @@ public:
     /** True while analysis is running (between startProcessing and allDone). */
     bool isProcessingActive() const { return processingHasStarted.load(); }
 
+    /** True while an acquisition-triggered auto-start delay is pending. */
+    bool isAutoStartPending() const { return autoStartPending.load(); }
+
+    /** True after every probe has finalized the current run. */
+    bool isProcessingComplete() const { return processingRunCompleted.load (std::memory_order_acquire); }
+
     /** Monotonically incremented (under metricsMutex) whenever probeMetrics is
         updated.  The canvas compares this against its own cached value to skip
         the expensive deep-copy when no new data has arrived since the last refresh. */
@@ -283,6 +291,7 @@ public:
     String handleConfigMessage (const String& msg) override;
 
 private:
+    static constexpr int autoStartDelayMs = 2000;
     static constexpr int ingestionQueueCapacity = 3;
     // AbstractFifo reserves one index to distinguish full from empty.
     static constexpr int ingestionQueueStorageSize = ingestionQueueCapacity + 1;
@@ -304,7 +313,10 @@ private:
     class AnalysisWorker final : private Thread
     {
     public:
-        AnalysisWorker (QualityMonitor& owner, int probeIndex, int numChannels);
+        AnalysisWorker (QualityMonitor& owner,
+                        int probeIndex,
+                        int numChannels,
+                        int64_t targetSamples);
         ~AnalysisWorker() override;
 
         bool start();
@@ -318,9 +330,11 @@ private:
 
         QualityMonitor& owner;
         const int probeIndex;
+        const int64_t targetSamples;
         AbstractFifo fifo { ingestionQueueStorageSize };
         std::array<IngestionSlot, ingestionQueueStorageSize> slots;
         int64_t producerSamples = 0;
+        bool acceptingInput = true; // audio-thread-only
         std::atomic<int64_t> observedSamples { 0 };
     };
 
@@ -330,14 +344,18 @@ private:
     SpinLock ingestionLock; // message thread blocks; audio thread only try-locks
     std::atomic<int> durationSeconds { 30 };
     std::atomic<bool> autoStartProcessing { true };
+    std::atomic<bool> autoStartPending { false };
+    std::atomic<bool> acquisitionIsActive { false };
     std::atomic<bool> syncMatchingDeviceThresholds { false };
     std::atomic<bool> processingHasStarted { false };
+    std::atomic<bool> processingRunCompleted { false };
     std::atomic<uint32_t> metricsGeneration { 0 }; // incremented under metricsMutex on every probeMetrics write
     bool applyingMatchedDeviceThresholds = false;
 
     std::vector<std::vector<int>> probeChannelIndices; // global buffer indices of DATA channels per stream
     std::vector<uint16> probeStreamIds; // stream ID for each probe (for per-stream sample count)
     int totalProbes = 0;
+    int nextProbeToIngest = 0; // audio-thread-only round-robin starting index
 
     std::vector<std::unique_ptr<AnalysisWorker>> analysisWorkers;
     std::atomic<int> completedProbeCount { 0 };
@@ -353,6 +371,9 @@ private:
     void captureSnapshot (int pi, const AudioBuffer<float>& samples, int numSamples);
 
     void applyThresholdToMatchingDeviceStreams (uint16 sourceStreamId, const String& parameterName, float value);
+
+    /** Handles the cancellable one-shot auto-start delay on the message thread. */
+    void timerCallback() override;
 
     /** Shared reset + start logic used by both startAcquisition and startProcessing. */
     void doStartProcessing();

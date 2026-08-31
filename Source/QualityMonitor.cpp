@@ -151,6 +151,9 @@ QualityMonitor::QualityMonitor()
 
 QualityMonitor::~QualityMonitor()
 {
+    autoStartPending.store (false);
+    Timer::stopTimer();
+    acquisitionIsActive.store (false, std::memory_order_release);
     const SpinLock::ScopedLockType lock (ingestionLock);
     processingHasStarted.store (false);
     for (int pi = 0; pi < (int) analysisWorkers.size(); ++pi)
@@ -550,6 +553,7 @@ void QualityMonitor::updateSettings()
     // try-lock and return immediately while workers or queue storage change.
     const SpinLock::ScopedLockType ingestionGuard (ingestionLock);
     processingHasStarted.store (false);
+    processingRunCompleted.store (false, std::memory_order_release);
     for (int pi = 0; pi < (int) analysisWorkers.size(); ++pi)
         stopAnalysisWorker (pi);
     analysisWorkers.clear();
@@ -634,13 +638,19 @@ void QualityMonitor::process (AudioBuffer<float>& buffer)
     // Never wait on the real-time thread. A failed try-lock means the message
     // thread is starting, stopping, or rebuilding the per-probe queues.
     const SpinLock::ScopedTryLockType lock (ingestionLock);
-    if (! lock.isLocked() || ! processingHasStarted.load())
+    if (! lock.isLocked() || ! processingHasStarted.load() || totalProbes <= 0)
         return;
 
     const int totalCh = buffer.getNumChannels();
 
-    for (int pi = 0; pi < totalProbes; ++pi)
+    // Publishing a probe lets its worker run immediately. Rotate the first
+    // probe so that callback order cannot systematically favour probe zero.
+    const int firstProbe = nextProbeToIngest;
+    nextProbeToIngest = (nextProbeToIngest + 1) % totalProbes;
+
+    for (int offset = 0; offset < totalProbes; ++offset)
     {
+        const int pi = (firstProbe + offset) % totalProbes;
         const int numSamples = getNumSamplesInBlock (probeStreamIds[pi]);
         const auto& chIndices = probeChannelIndices[pi];
         const int nCh = (int) chIndices.size();
@@ -772,13 +782,21 @@ void QualityMonitor::finishProbeIfNeeded (int pi)
             if (saturated != 0)
                 ++m.numSaturatedChannels;
 
-        m.processingDone = true;
         m.finalizeStatuses();
         metricsGeneration.fetch_add (1, std::memory_order_relaxed);
     }
 
     if (completedProbeCount.fetch_add (1, std::memory_order_acq_rel) + 1 == totalProbes)
+    {
+        // A capture is one multi-probe run. Publish completion as a barrier so
+        // the UI cannot report an earlier worker as a shorter acquisition.
+        const ScopedLock lock (metricsMutex);
+        for (auto& metrics : probeMetrics)
+            metrics.processingDone = true;
+        metricsGeneration.fetch_add (1, std::memory_order_relaxed);
+        processingRunCompleted.store (true, std::memory_order_release);
         processingHasStarted.store (false);
+    }
 }
 
 void QualityMonitor::finalizeRms (int pi)
@@ -1242,16 +1260,29 @@ void QualityMonitor::setDurationSeconds (int sec)
 
 bool QualityMonitor::startAcquisition()
 {
+    Timer::stopTimer();
+    acquisitionIsActive.store (true, std::memory_order_release);
     processingHasStarted.store (false);
+    processingRunCompleted.store (false, std::memory_order_release);
 
     if (autoStartProcessing.load())
-        doStartProcessing();
+    {
+        autoStartPending.store (true);
+        Timer::startTimer (autoStartDelayMs);
+    }
+    else
+    {
+        autoStartPending.store (false);
+    }
 
     return true;
 }
 
 bool QualityMonitor::stopAcquisition()
 {
+    acquisitionIsActive.store (false, std::memory_order_release);
+    autoStartPending.store (false);
+    Timer::stopTimer();
     const SpinLock::ScopedLockType lock (ingestionLock);
     processingHasStarted.store (false);
     for (int pi = 0; pi < (int) analysisWorkers.size(); ++pi)
@@ -1261,13 +1292,17 @@ bool QualityMonitor::stopAcquisition()
 
 void QualityMonitor::startProcessing()
 {
-    if (! CoreServices::getAcquisitionStatus() && ! processingHasStarted.load())
+    autoStartPending.store (false);
+    Timer::stopTimer();
+    if (! acquisitionIsActive.load (std::memory_order_acquire))
         return;
     doStartProcessing();
 }
 
 void QualityMonitor::stopProcessing()
 {
+    autoStartPending.store (false);
+    Timer::stopTimer();
     const SpinLock::ScopedLockType lock (ingestionLock);
     processingHasStarted.store (false);
     for (int pi = 0; pi < (int) analysisWorkers.size(); ++pi)
@@ -1277,6 +1312,20 @@ void QualityMonitor::stopProcessing()
 void QualityMonitor::setAutoStart (bool enabled)
 {
     autoStartProcessing.store (enabled);
+}
+
+void QualityMonitor::timerCallback()
+{
+    Timer::stopTimer();
+
+    // autoStartPending snapshots the preference when acquisition starts.
+    // Toggle changes during acquisition apply only to the next acquisition.
+    if (! autoStartPending.exchange (false)
+        || ! acquisitionIsActive.load (std::memory_order_acquire)
+        || processingHasStarted.load())
+        return;
+
+    doStartProcessing();
 }
 
 void QualityMonitor::setSyncMatchingDeviceThresholds (bool enabled)
@@ -1293,10 +1342,12 @@ void QualityMonitor::stopAnalysisWorker (int pi)
 
 QualityMonitor::AnalysisWorker::AnalysisWorker (QualityMonitor& ownerToUse,
                                                 int probeIndexToUse,
-                                                int numChannels)
+                                                int numChannels,
+                                                int64_t targetSamplesToUse)
     : Thread ("Quality Monitor analysis " + String (probeIndexToUse + 1)),
       owner (ownerToUse),
-      probeIndex (probeIndexToUse)
+      probeIndex (probeIndexToUse),
+      targetSamples (targetSamplesToUse)
 {
     for (auto& slot : slots)
         slot.samples.setSize (numChannels, maxIngestionBlockSamples, false, false, true);
@@ -1323,9 +1374,26 @@ void QualityMonitor::AnalysisWorker::enqueue (
     const std::vector<int>& channelIndices,
     int numSamples) noexcept
 {
-    producerSamples += numSamples;
+    if (! acceptingInput)
+        return;
 
-    if (numSamples > maxIngestionBlockSamples)
+    const int64_t remainingSamples = targetSamples > 0
+                                         ? targetSamples - producerSamples
+                                         : numSamples;
+    if (remainingSamples <= 0)
+    {
+        acceptingInput = false;
+        return;
+    }
+
+    // The final callback may straddle the requested duration. Queue only the
+    // portion inside the capture so every probe analyzes the same duration.
+    const int samplesToCapture = (int) std::min<int64_t> (numSamples, remainingSamples);
+    producerSamples += samplesToCapture;
+    if (targetSamples > 0 && producerSamples >= targetSamples)
+        acceptingInput = false;
+
+    if (samplesToCapture > maxIngestionBlockSamples)
     {
         observedSamples.store (producerSamples, std::memory_order_release);
         return;
@@ -1344,9 +1412,9 @@ void QualityMonitor::AnalysisWorker::enqueue (
         auto& slot = slots[(size_t) slotIndex];
 
         for (int channel = 0; channel < (int) channelIndices.size(); ++channel)
-            slot.samples.copyFrom (channel, 0, source, channelIndices[(size_t) channel], 0, numSamples);
+            slot.samples.copyFrom (channel, 0, source, channelIndices[(size_t) channel], 0, samplesToCapture);
 
-        slot.numSamples = numSamples;
+        slot.numSamples = samplesToCapture;
         slot.endSample = producerSamples;
     } // ScopedWrite publishes the fully populated slot here.
 
@@ -1374,16 +1442,19 @@ void QualityMonitor::AnalysisWorker::run()
             auto& state = owner.procState[(size_t) probeIndex];
             state.totalSamplesProcessed = std::max (state.totalSamplesProcessed,
                                                     slot.endSample);
-            owner.finishProbeIfNeeded (probeIndex);
             consumedBlock = true;
         } // ScopedRead releases the consumed slot here.
 
+        // Completion is only valid after every accepted block through the
+        // producer-defined capture boundary has been analyzed.
         auto& state = owner.procState[(size_t) probeIndex];
         if (fifo.getNumReady() == 0 && ! state.processingDone)
         {
+            const int64_t latestObservedSample =
+                observedSamples.load (std::memory_order_acquire);
             state.totalSamplesProcessed = std::max (
                 state.totalSamplesProcessed,
-                observedSamples.load (std::memory_order_acquire));
+                latestObservedSample);
             owner.finishProbeIfNeeded (probeIndex);
         }
 
@@ -1398,7 +1469,10 @@ bool QualityMonitor::startAnalysisWorker (int pi)
 {
     const int numChannels = (int) probeChannelIndices[(size_t) pi].size();
     analysisWorkers[(size_t) pi] =
-        std::make_unique<AnalysisWorker> (*this, pi, numChannels);
+        std::make_unique<AnalysisWorker> (*this,
+                                          pi,
+                                          numChannels,
+                                          procState[(size_t) pi].totalSamplesAllowed);
 
     return analysisWorkers[(size_t) pi]->start();
 }
@@ -1408,7 +1482,14 @@ void QualityMonitor::doStartProcessing()
     const SpinLock::ScopedLockType lock (ingestionLock);
     const int dur = durationSeconds.load();
 
+    if (! acquisitionIsActive.load (std::memory_order_acquire))
+        return;
+
     processingHasStarted.store (false);
+    processingRunCompleted.store (false, std::memory_order_release);
+    if (totalProbes <= 0)
+        return;
+
     for (int pi = 0; pi < (int) analysisWorkers.size(); ++pi)
         stopAnalysisWorker (pi);
 
@@ -1469,6 +1550,7 @@ void QualityMonitor::doStartProcessing()
     }
 
     completedProbeCount.store (0, std::memory_order_relaxed);
+    nextProbeToIngest = 0;
     analysisWorkers.clear();
     analysisWorkers.resize (totalProbes);
 
@@ -1541,14 +1623,14 @@ String QualityMonitor::handleConfigMessage (const String& msg)
         }
 
         const bool running = processingHasStarted.load();
-        bool allDone = running && metrics.size() > 0;
+        bool allDone = metrics.size() > 0;
         for (const auto& m : metrics)
             if (! m.processingDone)
                 allDone = false;
 
-        const String runStatus = ! running ? "idle"
-                                 : allDone ? "completed"
-                                           : "running";
+        const String runStatus = allDone   ? "completed"
+                                 : running ? "running"
+                                           : "idle";
 
         Array<var> probes;
         for (const auto& m : metrics)

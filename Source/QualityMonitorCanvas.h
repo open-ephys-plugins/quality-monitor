@@ -337,6 +337,7 @@ private:
     void layoutPanels();
     Parameter* getSelectedProbeParameter (const String& parameterName) const;
     void updatePanelParameterEditors();
+    void synchronizeCompletionState();
     void updateSaveButtonState();
     void saveCurrentRunArtifacts();
 

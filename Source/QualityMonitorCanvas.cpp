@@ -175,7 +175,7 @@ static bool isRunCompleted (const Array<ProbeMetrics>& metrics)
     return true;
 }
 
-static var probeMetricsToVar (const ProbeMetrics& metrics, uint16 streamId)
+static var probeMetricsToVar (const ProbeMetrics& metrics)
 {
     DynamicObject::Ptr probeObject = new DynamicObject();
     DynamicObject::Ptr statusObject = new DynamicObject();
@@ -1787,7 +1787,7 @@ QualityMonitorCanvas::QualityMonitorCanvas (QualityMonitor* proc)
     autoStartBtn = std::make_unique<ToggleButton> ("Auto Start");
     autoStartBtn->setClickingTogglesState (true);
     autoStartBtn->setToggleState (true, dontSendNotification); // default ON
-    autoStartBtn->setTooltip ("Begin processing as soon as acquisition starts");
+    autoStartBtn->setTooltip ("Automatically process the next acquisition");
     autoStartBtn->onClick = [this]
     {
         processor->setAutoStart (autoStartBtn->getToggleState());
@@ -1810,7 +1810,7 @@ QualityMonitorCanvas::QualityMonitorCanvas (QualityMonitor* proc)
     captureBtn->setEnabled (false); // only enable when acquisition is active
     captureBtn->onClick = [this]
     {
-        if (processor->isProcessingActive())
+        if (processor->isProcessingActive() || processor->isAutoStartPending())
             stopProcessing();
         else
             startProcessing();
@@ -1887,15 +1887,13 @@ void QualityMonitorCanvas::refreshState() { updateSettings(); }
 
 void QualityMonitorCanvas::updateSettings()
 {
-    processor->copyMetricsTo (localMetrics);
-    processingDone = isRunCompleted (localMetrics);
-    updateSaveButtonState();
+    synchronizeCompletionState();
 
     probeListModel->setMetrics (localMetrics, selectedProbe);
     probeListBox->updateContent();
     if (selectedProbe < localMetrics.size())
         probeListBox->selectRow (selectedProbe, false, true);
-    else if (!localMetrics.isEmpty())
+    else if (! localMetrics.isEmpty())
         probeListBox->selectRow (0, false, true);
 
     snapRefreshCounter = 0;
@@ -1919,7 +1917,7 @@ void QualityMonitorCanvas::beginAnimation()
 
     if (autoStartBtn->getToggleState())
     {
-        statusIndicator->setText ("RUNNING", dontSendNotification);
+        statusIndicator->setText ("WAITING", dontSendNotification);
         statusIndicator->setColour (Label::textColourId, Colours::royalblue);
 
         captureBtn->setButtonText ("Stop");
@@ -1937,9 +1935,12 @@ void QualityMonitorCanvas::beginAnimation()
 
 void QualityMonitorCanvas::endAnimation()
 {
+    // The timer is the normal path that observes the worker completion barrier.
+    // Take one final snapshot before stopping it so completion cannot remain
+    // hidden in the processor while the Save button uses stale cached metrics.
+    synchronizeCompletionState();
     stopCallbacks();
     acquisitionActive = false;
-    updateSaveButtonState();
 
     if (processingDone)
     {
@@ -2002,10 +2003,7 @@ void QualityMonitorCanvas::refresh()
     const uint32_t gen = processor->getMetricsGeneration();
     if (gen != lastSeenGeneration)
     {
-        processor->copyMetricsTo (localMetrics);
-        lastSeenGeneration = gen;
-        processingDone = isRunCompleted (localMetrics);
-        updateSaveButtonState();
+        synchronizeCompletionState();
 
         // Update the sidebar list with latest status colours
         probeListModel->setMetrics (localMetrics, selectedProbe);
@@ -2040,6 +2038,14 @@ void QualityMonitorCanvas::refresh()
         captureBtn->setEnabled (true);
 
         durationCombo->setEnabled (true);
+    }
+    else if (processor->isAutoStartPending())
+    {
+        statusIndicator->setText ("WAITING", dontSendNotification);
+    }
+    else if (processor->isProcessingActive())
+    {
+        statusIndicator->setText ("RUNNING", dontSendNotification);
     }
 }
 
@@ -2083,14 +2089,27 @@ void QualityMonitorCanvas::updateSaveButtonState()
         saveBtn->setEnabled (processingDone);
 }
 
+void QualityMonitorCanvas::synchronizeCompletionState()
+{
+    if (processor == nullptr)
+        return;
+
+    // Read the generation first. If a worker publishes after this read, the
+    // next timer tick will observe a different generation and copy again.
+    const uint32_t generation = processor->getMetricsGeneration();
+    processor->copyMetricsTo (localMetrics);
+    lastSeenGeneration = generation;
+    processingDone = processor->isProcessingComplete()
+                     && isRunCompleted (localMetrics);
+    updateSaveButtonState();
+}
+
 void QualityMonitorCanvas::saveCurrentRunArtifacts()
 {
     if (processor == nullptr || content == nullptr)
         return;
 
-    processor->copyMetricsTo (localMetrics);
-    processingDone = isRunCompleted (localMetrics);
-    updateSaveButtonState();
+    synchronizeCompletionState();
 
     if (! processingDone)
         return;
@@ -2194,11 +2213,10 @@ void QualityMonitorCanvas::saveCurrentRunArtifacts()
     restoreSelectedProbeView();
 
     DynamicObject root;
-    DynamicObject::Ptr runObject = new DynamicObject();
     Array<var> probes;
     probes.ensureStorageAllocated (localMetrics.size());
     for (int i = 0; i < localMetrics.size(); ++i)
-        probes.add (probeMetricsToVar (localMetrics.getReference (i), processor->getProbeStreamId (i)));
+        probes.add (probeMetricsToVar (localMetrics.getReference (i)));
 
     root.setProperty ("generated_at", now.toISO8601 (true));
     root.setProperty ("stream_count", probes.size());
