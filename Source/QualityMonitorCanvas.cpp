@@ -2352,3 +2352,45 @@ void QualityMonitorCanvas::paint (Graphics& g)
     g.setFont (interSemiBold (14.0f));
     g.drawText ("DATA STREAMS", 10, HEADER_H, SIDEBAR_W - 12, HEADER_H, Justification::centredLeft);
 }
+
+void QualityMonitorCanvas::saveCustomParametersToXml (XmlElement* xml)
+{
+    xml->setAttribute ("autoStart", autoStartBtn->getToggleState());
+    xml->setAttribute ("duration", durationCombo->getText());
+    xml->setAttribute ("layout", static_cast<int> (content->currentLayout)); 
+}
+
+void QualityMonitorCanvas::loadCustomParametersFromXml (XmlElement* xml)
+{
+    autoStartBtn->setToggleState (xml->getBoolAttribute ("autoStart", false), sendNotification);
+
+    auto duration = xml->getStringAttribute ("duration", ""); 
+    for (int i = 0; i < durationCombo->getNumItems(); ++i)
+    {
+        if (durationCombo->getItemText(i) == duration)
+        {
+            durationCombo->setSelectedItemIndex(i, sendNotification);
+            break;
+        }
+    }
+
+    content->currentLayout = static_cast<ContentComponent::PanelLayout> (xml->getIntAttribute ("layout", static_cast<int> (ContentComponent::PanelLayout::Grid2x2)));
+    if (content->currentLayout == ContentComponent::PanelLayout::Grid2x2)
+    {
+        layoutGridBtn->setToggleState (true, dontSendNotification);
+        layoutHStackBtn->setToggleState (false, dontSendNotification);
+        layoutVStackBtn->setToggleState (false, dontSendNotification);
+    }
+    else if (content->currentLayout == ContentComponent::PanelLayout::Stack4x1)
+    {
+        layoutGridBtn->setToggleState (false, dontSendNotification);
+        layoutHStackBtn->setToggleState (false, dontSendNotification);
+        layoutVStackBtn->setToggleState (true, dontSendNotification);
+    }
+    else
+    {
+        layoutGridBtn->setToggleState (false, dontSendNotification);
+        layoutHStackBtn->setToggleState (true, dontSendNotification);
+        layoutVStackBtn->setToggleState (false, dontSendNotification);
+    }
+}

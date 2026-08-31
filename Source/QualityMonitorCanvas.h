@@ -300,6 +300,12 @@ public:
     /** Called when acquisition stops to allow it to stop any rendering. */
     void endAnimation() override;
 
+    /** Saves custom parameters to XML */
+    void saveCustomParametersToXml (XmlElement* xml) override;
+
+    /** Loads custom parameters from XML */
+    void loadCustomParametersFromXml (XmlElement* xml) override;
+
 private:
     QualityMonitor* processor;
 
