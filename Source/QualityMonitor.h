@@ -343,7 +343,7 @@ private:
     CriticalSection metricsMutex;
     SpinLock ingestionLock; // message thread blocks; audio thread only try-locks
     std::atomic<int> durationSeconds { 30 };
-    std::atomic<bool> autoStartProcessing { true };
+    std::atomic<bool> autoStartProcessing { false };
     std::atomic<bool> autoStartPending { false };
     std::atomic<bool> acquisitionIsActive { false };
     std::atomic<bool> syncMatchingDeviceThresholds { false };

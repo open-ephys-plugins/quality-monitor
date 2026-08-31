@@ -1786,7 +1786,7 @@ QualityMonitorCanvas::QualityMonitorCanvas (QualityMonitor* proc)
 
     autoStartBtn = std::make_unique<ToggleButton> ("Auto Start");
     autoStartBtn->setClickingTogglesState (true);
-    autoStartBtn->setToggleState (true, dontSendNotification); // default ON
+    autoStartBtn->setToggleState (false, dontSendNotification); // default OFF
     autoStartBtn->setTooltip ("Automatically process the next acquisition");
     autoStartBtn->onClick = [this]
     {
