@@ -144,9 +144,12 @@ void ProbeProcessingState::allocate (int nCh, int windowSamples, int snapSamples
 
 // ── QualityMonitor ─────────────────────────────────────────────────────────
 
+std::atomic<int> QualityMonitor::instanceCount { 0 };
+
 QualityMonitor::QualityMonitor()
     : GenericProcessor ("Quality Monitor")
 {
+    instanceCount.fetch_add (1, std::memory_order_relaxed);
 }
 
 QualityMonitor::~QualityMonitor()
@@ -158,6 +161,20 @@ QualityMonitor::~QualityMonitor()
     processingHasStarted.store (false);
     for (int pi = 0; pi < (int) analysisWorkers.size(); ++pi)
         stopAnalysisWorker (pi);
+    analysisWorkers.clear();
+
+    // Explicitly destroy every FFTProcessor (and its fftw_plan) owned by this
+    // instance before possibly calling fftw_cleanup() below — fftw_cleanup()
+    // is only safe once no live plans remain anywhere in the process.
+    procState.clear();
+
+    // FFTW lazily registers internal codelet/solver tables and plan-cache
+    // entries the first time a plan is created, and only releases them via
+    // an explicit fftw_cleanup() call. Without this, memory debuggers report
+    // that global state as leaked. Only the last surviving instance may call
+    // it, since fftw_cleanup() invalidates every plan in the process.
+    if (instanceCount.fetch_sub (1, std::memory_order_acq_rel) == 1)
+        fftw_cleanup();
 }
 
 AudioProcessorEditor* QualityMonitor::createEditor()

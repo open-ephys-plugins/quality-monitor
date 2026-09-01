@@ -63,6 +63,13 @@ public:
     FFTProcessor (int n, int numChannels)
         : fftSize (n), numBins (n / 2 + 1), nCh (numChannels)
     {
+        // Computed first: if this (the only operation here that can throw,
+        // e.g. std::bad_alloc) fails, no FFTW resources have been allocated
+        // yet, so there is nothing for a would-be destructor call to leak.
+        window.resize (fftSize);
+        for (int k = 0; k < fftSize; ++k)
+            window[k] = 0.5 * (1.0 - std::cos (2.0 * MathConstants<double>::pi * k / (fftSize - 1)));
+
         inBuf = fftw_alloc_real (size_t (fftSize) * nCh);
         outBuf = fftw_alloc_complex (size_t (numBins) * nCh);
         // Single plan that batches all nCh channels; FFTW can exploit inter-channel SIMD.
@@ -79,9 +86,6 @@ public:
             1,
             numBins, // out, onembed, ostride, odist
             FFTW_ESTIMATE);
-        window.resize (fftSize);
-        for (int k = 0; k < fftSize; ++k)
-            window[k] = 0.5 * (1.0 - std::cos (2.0 * MathConstants<double>::pi * k / (fftSize - 1)));
     }
 
     ~FFTProcessor()
@@ -291,6 +295,11 @@ public:
     String handleConfigMessage (const String& msg) override;
 
 private:
+    // Tracks how many QualityMonitor instances currently hold live FFTW plans.
+    // fftw_cleanup() invalidates every FFTW plan in the process, so it is only
+    // safe to call once the last instance has torn down its FFTProcessors.
+    static std::atomic<int> instanceCount;
+
     static constexpr int autoStartDelayMs = 2000;
     static constexpr int ingestionQueueCapacity = 3;
     // AbstractFifo reserves one index to distinguish full from empty.
