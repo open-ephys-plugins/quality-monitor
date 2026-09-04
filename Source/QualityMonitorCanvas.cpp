@@ -214,7 +214,7 @@ static var probeMetricsToVar (const ProbeMetrics& metrics)
     return var (probeObject.get());
 }
 
-static Result writeComponentSnapshot (Component& component, Rectangle<int> bounds, const File& outputFile)
+static Result createComponentSnapshotImage (Component& component, Rectangle<int> bounds, Image& image)
 {
     const float MIN_SNAPSHOT_HEIGHT_PX = 1000.0f;
 
@@ -227,8 +227,16 @@ static Result writeComponentSnapshot (Component& component, Rectangle<int> bound
 
     const float snapshotScale = std::max (1.0f,
                                           MIN_SNAPSHOT_HEIGHT_PX / float (std::max (1, bounds.getHeight())));
-    Image image = component.createComponentSnapshot (bounds, true, snapshotScale);
+    image = component.createComponentSnapshot (bounds, true, snapshotScale);
 
+    if (image.isNull())
+        return Result::fail ("Unable to render component snapshot.");
+
+    return Result::ok();
+}
+
+static Result writeSnapshotImage (const Image& image, const File& outputFile)
+{
     PNGImageFormat pngFormat;
     std::unique_ptr<FileOutputStream> stream (outputFile.createOutputStream());
     if (stream == nullptr)
@@ -239,6 +247,183 @@ static Result writeComponentSnapshot (Component& component, Rectangle<int> bound
 
     return Result::ok();
 }
+
+class ArtifactExportJob final : public ThreadWithProgressWindow
+{
+public:
+    ArtifactExportJob (File saveDirectory,
+               Array<ProbeMetrics> metrics,
+               QualityMonitorCanvas* owner)
+        : ThreadWithProgressWindow ("Saving Quality Monitor Artifacts",
+                                    true,
+                                    true,
+                                    10000,
+                                    "Cancel",
+                    owner),
+          metrics (std::move (metrics)),
+      owner (owner)
+    {
+    const Time now = Time::getCurrentTime();
+    exportDirectory = saveDirectory.getChildFile ("quality-monitor-" + now.formatted ("%Y-%m-%d_%H-%M-%S"));
+    generatedAt = now.toISO8601 (true);
+
+    exportContent.setLookAndFeel (&owner->getLookAndFeel());
+    exportContent.setLayout (owner->content->currentLayout);
+    exportContent.setSize (owner->content->getWidth(), owner->content->getHeight());
+    }
+
+    ~ArtifactExportJob() override
+    {
+        signalThreadShouldExit();
+        stopThread (10000);
+    }
+
+    void run() override
+    {
+        exportResult = exportDirectory.createDirectory();
+        if (exportResult.failed())
+            return;
+
+        struct PlotInfo
+        {
+            const char* name;
+            const char* fileSuffix;
+        };
+        constexpr std::array<PlotInfo, 4> plots {
+            PlotInfo { "RMS heatmap", "_rms_heatmap" },
+            PlotInfo { "Power Spectrum", "_power_spectrum" },
+            PlotInfo { "Data Snapshot", "_data_snapshot" },
+            PlotInfo { "Spike Rate", "_spike_rate" }
+        };
+        const int totalSteps = metrics.size() * int (plots.size()) + 1;
+        int completedSteps = 0;
+
+        for (int streamIndex = 0; streamIndex < metrics.size(); ++streamIndex)
+        {
+            const auto& streamMetrics = metrics.getReference (streamIndex);
+
+            for (int panelIndex = 0; panelIndex < int (plots.size()); ++panelIndex)
+            {
+                if (threadShouldExit())
+                    return;
+
+                const auto& plot = plots[size_t (panelIndex)];
+                setStatusMessage ("Saving " + streamMetrics.streamName + " " + plot.name
+                                  + " (stream " + String (streamIndex + 1) + " of " + String (metrics.size()) + ")");
+
+                Image snapshot;
+                {
+                    MessageManagerLock messageManagerLock (this);
+                    if (! messageManagerLock.lockWasGained() || threadShouldExit())
+                        return;
+
+                    exportResult = capturePlot (streamMetrics, panelIndex, snapshot);
+                }
+
+                if (exportResult.failed())
+                    return;
+
+                const String fileStem = streamMetrics.streamName + plot.fileSuffix;
+                exportResult = writeSnapshotImage (
+                    snapshot,
+                    exportDirectory.getNonexistentChildFile (fileStem, ".png"));
+                if (exportResult.failed())
+                    return;
+
+                setProgress (double (++completedSteps) / double (totalSteps));
+            }
+        }
+
+        if (threadShouldExit())
+            return;
+
+        setStatusMessage ("Saving metrics JSON");
+
+        DynamicObject root;
+        Array<var> probes;
+        probes.ensureStorageAllocated (metrics.size());
+        for (const auto& streamMetrics : metrics)
+            probes.add (probeMetricsToVar (streamMetrics));
+
+        root.setProperty ("generated_at", generatedAt);
+        root.setProperty ("stream_count", probes.size());
+        root.setProperty ("analysis_duration_sec", metrics[0].analysisDurationSec);
+        root.setProperty ("streams", probes);
+
+        const File metricsFile = exportDirectory.getChildFile ("quality_metrics.json");
+        FileOutputStream outputStream (metricsFile);
+        if (! outputStream.openedOk())
+        {
+            exportResult = Result::fail ("Unable to write metrics JSON file:\n" + metricsFile.getFullPathName());
+            return;
+        }
+
+        root.writeAsJSON (outputStream,
+                          JSON::FormatOptions {}
+                              .withIndentLevel (4)
+                              .withSpacing (JSON::Spacing::multiLine)
+                              .withMaxDecimalPlaces (6));
+        outputStream.flush();
+        setProgress (double (++completedSteps) / double (totalSteps));
+    }
+
+    void threadComplete (bool userPressedCancel) override
+    {
+        if (owner != nullptr)
+        {
+            owner->artifactExportJob = nullptr;
+            owner->updateSaveButtonState();
+
+            if (! userPressedCancel)
+            {
+                const bool failed = exportResult.failed();
+                AlertWindow::showMessageBoxAsync (failed ? AlertWindow::WarningIcon : AlertWindow::InfoIcon,
+                                                  "Quality Monitor",
+                                                  failed ? "Unable to save artifacts:\n" + exportResult.getErrorMessage()
+                                                         : "Saved plots and metrics to:\n" + exportDirectory.getFullPathName());
+            }
+        }
+
+        delete this;
+    }
+
+private:
+    Result capturePlot (const ProbeMetrics& streamMetrics, int panelIndex, Image& snapshot)
+    {
+        ZoomablePanel* panel = nullptr;
+
+        switch (panelIndex)
+        {
+            case 0:
+                exportContent.rmsPanel->updateData (streamMetrics);
+                panel = exportContent.rmsPanel.get();
+                break;
+            case 1:
+                exportContent.specPanel->updateData (streamMetrics);
+                panel = exportContent.specPanel.get();
+                break;
+            case 2:
+                exportContent.snapPanel->updateData (streamMetrics);
+                panel = exportContent.snapPanel.get();
+                break;
+            case 3:
+                exportContent.spikePanel->updateData (streamMetrics);
+                panel = exportContent.spikePanel.get();
+                break;
+            default:
+                return Result::fail ("Unknown plot type.");
+        }
+
+        return createComponentSnapshotImage (*panel, panel->getPlotBoundsForSnapshot(), snapshot);
+    }
+
+    File exportDirectory;
+    String generatedAt;
+    Array<ProbeMetrics> metrics;
+    Component::SafePointer<QualityMonitorCanvas> owner;
+    ContentComponent exportContent;
+    Result exportResult = Result::ok();
+};
 
 static BoundedValueParameterEditor* bindCompactParameterEditor (std::unique_ptr<BoundedValueParameterEditor>& pEditor,
                                                                 Component& owner,
@@ -1881,7 +2066,11 @@ QualityMonitorCanvas::QualityMonitorCanvas (QualityMonitor* proc)
     refreshRate = 5.0f;
 }
 
-QualityMonitorCanvas::~QualityMonitorCanvas() { stopTimer(); }
+QualityMonitorCanvas::~QualityMonitorCanvas()
+{
+    stopTimer();
+    delete artifactExportJob;
+}
 
 void QualityMonitorCanvas::refreshState() { updateSettings(); }
 
@@ -2088,7 +2277,7 @@ void QualityMonitorCanvas::updatePanelParameterEditors()
 void QualityMonitorCanvas::updateSaveButtonState()
 {
     if (saveBtn != nullptr)
-        saveBtn->setEnabled (processingDone);
+        saveBtn->setEnabled (processingDone && artifactExportJob == nullptr);
 }
 
 void QualityMonitorCanvas::synchronizeCompletionState()
@@ -2108,25 +2297,13 @@ void QualityMonitorCanvas::synchronizeCompletionState()
 
 void QualityMonitorCanvas::saveCurrentRunArtifacts()
 {
-    if (processor == nullptr || content == nullptr)
+    if (processor == nullptr || content == nullptr || artifactExportJob != nullptr)
         return;
 
     synchronizeCompletionState();
 
     if (! processingDone)
         return;
-
-    auto restoreSelectedProbeView = [this]
-    {
-        if (content == nullptr || selectedProbe < 0 || selectedProbe >= localMetrics.size())
-            return;
-
-        const auto& selectedMetrics = localMetrics.getReference (selectedProbe);
-        content->rmsPanel->updateData (selectedMetrics);
-        content->specPanel->updateData (selectedMetrics);
-        content->snapPanel->updateData (selectedMetrics);
-        content->spikePanel->updateData (selectedMetrics);
-    };
 
     FileChooser saveLocationChooser ("Select a folder for the exported plots and metrics",
                                      CoreServices::getDefaultUserSaveDirectory(),
@@ -2145,106 +2322,11 @@ void QualityMonitorCanvas::saveCurrentRunArtifacts()
         return;
     }
 
-    const Time now = Time::getCurrentTime();
-    const String timestamp = now.formatted ("%Y-%m-%d_%H-%M-%S");
-
-    const File exportDir = saveDir.getChildFile ("quality-monitor-" + timestamp);
-    Result result = exportDir.createDirectory();
-    if (result.failed())
-    {
-        AlertWindow::showMessageBoxAsync (AlertWindow::WarningIcon,
-                                          "Quality Monitor",
-                                          "Unable to create export directory:\n" + result.getErrorMessage());
-        return;
-    }
-
-    for (int i = 0; i < localMetrics.size(); ++i)
-    {
-        const auto& metrics = localMetrics.getReference (i);
-        const String prefix = metrics.streamName;
-
-        content->rmsPanel->updateData (metrics);
-        content->specPanel->updateData (metrics);
-        content->snapPanel->updateData (metrics);
-        content->spikePanel->updateData (metrics);
-
-        for (int panelIndex = 0; panelIndex < 4; ++panelIndex)
-        {
-            ZoomablePanel* panel = nullptr;
-            String fileStem;
-
-            switch (panelIndex)
-            {
-                case 0:
-                    panel = content->rmsPanel.get();
-                    fileStem = prefix + "_rms_heatmap";
-                    break;
-                case 1:
-                    panel = content->specPanel.get();
-                    fileStem = prefix + "_power_spectrum";
-                    break;
-                case 2:
-                    panel = content->snapPanel.get();
-                    fileStem = prefix + "_data_snapshot";
-                    break;
-                case 3:
-                    panel = content->spikePanel.get();
-                    fileStem = prefix + "_spike_rate";
-                    break;
-                default:
-                    break;
-            }
-
-            if (panel == nullptr)
-                continue;
-
-            result = writeComponentSnapshot (*panel,
-                                             panel->getPlotBoundsForSnapshot(),
-                                             exportDir.getNonexistentChildFile (fileStem, ".png"));
-            if (result.failed())
-            {
-                restoreSelectedProbeView();
-                AlertWindow::showMessageBoxAsync (AlertWindow::WarningIcon,
-                                                  "Quality Monitor",
-                                                  "Unable to save plot image:\n" + result.getErrorMessage());
-                return;
-            }
-        }
-    }
-
-    restoreSelectedProbeView();
-
-    DynamicObject root;
-    Array<var> probes;
-    probes.ensureStorageAllocated (localMetrics.size());
-    for (int i = 0; i < localMetrics.size(); ++i)
-        probes.add (probeMetricsToVar (localMetrics.getReference (i)));
-
-    root.setProperty ("generated_at", now.toISO8601 (true));
-    root.setProperty ("stream_count", probes.size());
-    root.setProperty ("analysis_duration_sec", durationCombo->getText().removeCharacters (" s").getIntValue());
-    root.setProperty ("streams", probes);
-
-    const File metricsFile = exportDir.getChildFile ("quality_metrics.json");
-    FileOutputStream outputStream (metricsFile);
-    if (! outputStream.openedOk())
-    {
-        AlertWindow::showMessageBoxAsync (AlertWindow::WarningIcon,
-                                          "Quality Monitor",
-                                          "Unable to write metrics JSON file:\n" + metricsFile.getFullPathName());
-        return;
-    }
-
-    root.writeAsJSON (outputStream,
-                      JSON::FormatOptions {}
-                          .withIndentLevel (4)
-                          .withSpacing (JSON::Spacing::multiLine)
-                          .withMaxDecimalPlaces (6));
-    outputStream.flush();
-
-    AlertWindow::showMessageBoxAsync (AlertWindow::InfoIcon,
-                                      "Quality Monitor",
-                                      "Saved plots and metrics to:\n" + exportDir.getFullPathName());
+    artifactExportJob = new ArtifactExportJob (saveDir,
+                                                localMetrics,
+                                                this);
+    updateSaveButtonState();
+    artifactExportJob->launchThread();
 }
 
 void QualityMonitorCanvas::selectProbe (int idx)

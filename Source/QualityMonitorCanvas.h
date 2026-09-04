@@ -335,6 +335,7 @@ private:
     bool processingDone = false;
     int snapRefreshCounter = 0; // throttle DataSnapshotPanel to 1 Hz
     uint32_t lastSeenGeneration = 0; // tracks metricsGeneration to skip no-op deep copies
+    ThreadWithProgressWindow* artifactExportJob = nullptr;
 
     static constexpr int SIDEBAR_W = 240;
     static constexpr int HEADER_H = 36;
@@ -349,6 +350,8 @@ private:
 
     void startProcessing();
     void stopProcessing();
+
+    friend class ArtifactExportJob;
 
     /** Generates an assertion if this class leaks */
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (QualityMonitorCanvas)
