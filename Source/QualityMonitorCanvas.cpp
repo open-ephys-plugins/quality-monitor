@@ -1896,6 +1896,8 @@ void QualityMonitorCanvas::updateSettings()
     else if (! localMetrics.isEmpty())
         probeListBox->selectRow (0, false, true);
 
+    probeListBox->repaint();
+
     snapRefreshCounter = 0;
 
     content->rmsPanel->resetZoom();
