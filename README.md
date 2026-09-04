@@ -1,5 +1,7 @@
 # Quality Monitor
 
+![Quality Monitor Editor](https://open-ephys.github.io/gui-docs/_images/qualitymonitor-01.png)
+
 Monitors the health of continuous electrophysiology signals in real-time.
 
 ## Installation
@@ -9,6 +11,8 @@ This plugin can be added via the Open Ephys GUI Plugin Installer. To access the 
 ## Usage
 
 Instructions for using the Quality Monitor plugin are available [here](https://open-ephys.github.io/gui-docs/User-Manual/Plugins/Quality-Monitor.html).
+
+![Quality Monitor Canvas Screenshot](https://open-ephys.github.io/gui-docs/_images/qualitymonitor-02.png)
 
 
 ## Building from source
